@@ -3,57 +3,68 @@ import { NextResponse } from 'next/server';
 import { getDb, logHistory } from '@/lib/db';
 import crypto from 'crypto';
 
-const formatAddress = (val: string): string => {
-  const s = val.trim().replace(/\s+/g, ' ');
-  if (!s) return '';
+const autoFormatAddress = (addressStr: string): string => {
+  if (!addressStr) return '';
+  const clean = addressStr.trim();
   
   const suffixes = [
-    'st', 'street', 'rd', 'road', 'dr', 'drive', 'wy', 'way', 'ave', 'avenue', 
-    'ln', 'lane', 'blvd', 'boulevard', 'pl', 'place', 'ct', 'court', 'ter', 'terrace', 
-    'cir', 'circle', 'hwy', 'highway', 'pkwy', 'parkway'
+    'st', 'street', 'rd', 'road', 'dr', 'drive', 'ave', 'avenue', 
+    'ln', 'lane', 'blvd', 'boulevard', 'ct', 'court', 'pl', 'place', 
+    'wy', 'way', 'ter', 'terrace', 'cir', 'circle', 'hwy', 'highway', 
+    'pkwy', 'parkway', 'loop'
   ];
+
+  const suffixPattern = new RegExp(
+    `^(.*\\b(${suffixes.join('|')})\\b[.,\\s]*)(.*)$`, 
+    'i'
+  );
   
-  const words = s.split(' ');
-  let suffixIndex = -1;
-  for (let i = 0; i < words.length; i++) {
-    const wordClean = words[i].replace(/[.,]/g, '').toLowerCase();
-    if (suffixes.includes(wordClean)) {
-      suffixIndex = i;
-      break;
+  const match = clean.match(suffixPattern);
+  if (match) {
+    let streetPart = match[1].trim();
+    const remaining = match[3].trim();
+    
+    if (streetPart.endsWith(',')) {
+      streetPart = streetPart.slice(0, -1).trim();
     }
-  }
-  
-  let street = '';
-  let rest = '';
-  
-  if (suffixIndex !== -1) {
-    street = words.slice(0, suffixIndex + 1).join(' ').replace(/,$/, '');
-    rest = words.slice(suffixIndex + 1).join(' ');
-  } else {
-    const commaIdx = s.indexOf(',');
-    if (commaIdx !== -1) {
-      street = s.substring(0, commaIdx).trim();
-      rest = s.substring(commaIdx + 1).trim();
-    } else {
-      if (words.length > 1) {
-        street = words.slice(0, words.length - 1).join(' ');
-        rest = words[words.length - 1];
-      } else {
-        street = s;
-        rest = '';
+    
+    let cityPart = remaining;
+    let zipPart = '';
+    
+    const zipMatch = cityPart.match(/\b\d{5}\b/);
+    if (zipMatch) {
+      zipPart = zipMatch[0];
+      cityPart = cityPart.replace(/\b\d{5}\b/, '').trim();
+    }
+    
+    cityPart = cityPart.replace(/,?\s*\b(il|illinois)\b/i, '').trim();
+    
+    if (cityPart.endsWith(',')) {
+      cityPart = cityPart.slice(0, -1).trim();
+    }
+    if (cityPart.startsWith(',')) {
+      cityPart = cityPart.slice(1).trim();
+    }
+    
+    if (!cityPart) {
+      if (!clean.toUpperCase().includes('IL')) {
+        return `${clean}, IL`;
       }
+      return clean;
     }
+    
+    let formatted = `${streetPart}, ${cityPart}, IL`;
+    if (zipPart) {
+      formatted += ` ${zipPart}`;
+    }
+    return formatted;
   }
   
-  rest = rest.trim().replace(/^,/, '').trim();
-  let city = rest.replace(/(?:,\s*|\s+)(?:IL|Illinois|il|illinois)$/i, '').trim();
-  city = city.replace(/,$/, '').trim();
-  
-  if (!city) {
-    return `${street}, IL`;
+  if (!clean.toLowerCase().includes('il') && !clean.toLowerCase().includes('illinois')) {
+    return `${clean}, IL`;
   }
   
-  return `${street}, ${city}, IL`;
+  return clean;
 };
 
 export async function POST(request: Request) {
@@ -75,16 +86,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Source appraisal not found' }, { status: 404 });
     }
 
-    const formattedAddress = formatAddress(newAddress);
-
-    // Apply color category and status rules for new clone (no inspection date/time)
-    let colorCategory = 'blue';
-    let stats = 'Unscheduled';
-    const typeLower = (source.type || '').toLowerCase();
-
-    if (typeLower.includes('hybrid')) {
-      colorCategory = 'brown';
-      stats = source.stats || ''; // Copy source stats for brown category
+    const formattedAddress = autoFormatAddress(newAddress);
+    const isHybrid = (source.type || '').toLowerCase().includes('hybrid');
+    
+    let finalColor = 'blue';
+    let finalStats = 'Unscheduled';
+    
+    if (isHybrid) {
+      finalColor = 'brown';
+      finalStats = source.stats || '';
     }
 
     // Generate new UUID for the cloned appraisal
@@ -100,10 +110,10 @@ export async function POST(request: Request) {
       '', // Blank inspection date for new clone
       '', // Blank inspection time for new clone
       newDueDate,
-      stats,
+      finalStats,
       source.client,
       source.fee,
-      colorCategory
+      finalColor
     );
 
     // Write history

@@ -17,7 +17,8 @@ import {
   X,
   Info,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  CheckSquare
 } from 'lucide-react';
 import QRCode from 'qrcode';
 
@@ -46,72 +47,133 @@ interface HistoryAction {
   beforeAppraisals?: Appraisal[];
 }
 
-
-
-// Format date to split format: { weekday, date }
-const formatDateLabelSplit = (dateStr: string) => {
-  if (!dateStr || dateStr === 'xx') return null;
-  const date = new Date(dateStr + 'T00:00:00');
-  if (isNaN(date.getTime())) return { weekday: dateStr, date: '' };
-  
-  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(date);
-  const datePart = new Intl.DateTimeFormat('en-US', { month: '2-digit', day: '2-digit' }).format(date);
-  
-  return { weekday, date: datePart };
-};
-
-// Format address to standard "Street Suffix, City, IL"
-const formatAddress = (val: string): string => {
-  const s = val.trim().replace(/\s+/g, ' ');
-  if (!s) return '';
+// Automatically format Illinois addresses
+const autoFormatAddress = (addressStr: string): string => {
+  if (!addressStr) return '';
+  const clean = addressStr.trim();
   
   const suffixes = [
-    'st', 'street', 'rd', 'road', 'dr', 'drive', 'wy', 'way', 'ave', 'avenue', 
-    'ln', 'lane', 'blvd', 'boulevard', 'pl', 'place', 'ct', 'court', 'ter', 'terrace', 
-    'cir', 'circle', 'hwy', 'highway', 'pkwy', 'parkway'
+    'st', 'street', 'rd', 'road', 'dr', 'drive', 'ave', 'avenue', 
+    'ln', 'lane', 'blvd', 'boulevard', 'ct', 'court', 'pl', 'place', 
+    'wy', 'way', 'ter', 'terrace', 'cir', 'circle', 'hwy', 'highway', 
+    'pkwy', 'parkway', 'loop'
   ];
+
+  const suffixPattern = new RegExp(
+    `^(.*\\b(${suffixes.join('|')})\\b[.,\\s]*)(.*)$`, 
+    'i'
+  );
   
-  const words = s.split(' ');
-  let suffixIndex = -1;
-  for (let i = 0; i < words.length; i++) {
-    const wordClean = words[i].replace(/[.,]/g, '').toLowerCase();
-    if (suffixes.includes(wordClean)) {
-      suffixIndex = i;
-      break;
+  const match = clean.match(suffixPattern);
+  if (match) {
+    let streetPart = match[1].trim();
+    const remaining = match[3].trim();
+    
+    if (streetPart.endsWith(',')) {
+      streetPart = streetPart.slice(0, -1).trim();
     }
-  }
-  
-  let street = '';
-  let rest = '';
-  
-  if (suffixIndex !== -1) {
-    street = words.slice(0, suffixIndex + 1).join(' ').replace(/,$/, '');
-    rest = words.slice(suffixIndex + 1).join(' ');
-  } else {
-    const commaIdx = s.indexOf(',');
-    if (commaIdx !== -1) {
-      street = s.substring(0, commaIdx).trim();
-      rest = s.substring(commaIdx + 1).trim();
-    } else {
-      if (words.length > 1) {
-        street = words.slice(0, words.length - 1).join(' ');
-        rest = words[words.length - 1];
-      } else {
-        street = s;
-        rest = '';
+    
+    let cityPart = remaining;
+    let zipPart = '';
+    
+    const zipMatch = cityPart.match(/\b\d{5}\b/);
+    if (zipMatch) {
+      zipPart = zipMatch[0];
+      cityPart = cityPart.replace(/\b\d{5}\b/, '').trim();
+    }
+    
+    cityPart = cityPart.replace(/,?\s*\b(il|illinois)\b/i, '').trim();
+    
+    if (cityPart.endsWith(',')) {
+      cityPart = cityPart.slice(0, -1).trim();
+    }
+    if (cityPart.startsWith(',')) {
+      cityPart = cityPart.slice(1).trim();
+    }
+    
+    if (!cityPart) {
+      if (!clean.toUpperCase().includes('IL')) {
+        return `${clean}, IL`;
       }
+      return clean;
     }
+    
+    let formatted = `${streetPart}, ${cityPart}, IL`;
+    if (zipPart) {
+      formatted += ` ${zipPart}`;
+    }
+    return formatted;
   }
   
-  rest = rest.trim().replace(/^,/, '').trim();
-  let city = rest.replace(/(?:,\s*|\s+)(?:IL|Illinois|il|illinois)$/i, '').trim();
-  city = city.replace(/,$/, '').trim();
-  
-  if (!city) {
-    return `${street}, IL`;
+  if (!clean.toLowerCase().includes('il') && !clean.toLowerCase().includes('illinois')) {
+    return `${clean}, IL`;
   }
   
-  return `${street}, ${city}, IL`;
+  return clean;
+};
+
+// Split date into Day of Week and Date values
+const splitDateLabel = (dateStr: string) => {
+  if (!dateStr || dateStr === 'xx') return { weekday: 'xx', dateVal: '' };
+  const date = new Date(dateStr + 'T00:00:00');
+  if (isNaN(date.getTime())) return { weekday: dateStr, dateVal: '' };
+  
+  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(date);
+  const dateVal = new Intl.DateTimeFormat('en-US', { month: '2-digit', day: '2-digit' }).format(date);
+  
+  return { weekday, dateVal };
+};
+
+// Time converter helpers (between 12-hour AM/PM and 24-hour HH:mm)
+const convertTo24Hour = (timeStr: string): string => {
+  if (!timeStr) return '';
+  if (/^\d{2}:\d{2}$/.test(timeStr)) return timeStr;
+  
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return timeStr;
+  
+  let hours = parseInt(match[1]);
+  const minutes = match[2];
+  const ampm = match[3].toUpperCase();
+  
+  if (ampm === 'PM' && hours < 12) hours += 12;
+  if (ampm === 'AM' && hours === 12) hours = 0;
+  
+  return `${String(hours).padStart(2, '0')}:${minutes}`;
+};
+
+const convertTo12Hour = (timeStr24: string): string => {
+  if (!timeStr24) return '';
+  const match = timeStr24.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return timeStr24;
+  
+  let hours = parseInt(match[1]);
+  const minutes = match[2];
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  
+  hours = hours % 12;
+  if (hours === 0) hours = 12;
+  
+  return `${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
+};
+
+// Remove "unscheduled" (case-insensitive) from a status string
+const removeUnscheduled = (stats: string) => {
+  if (!stats) return '';
+  return stats
+    .replace(/\bunscheduled\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+// Calculate fixed snapshot UTC ISO timestamp
+const getSnapshotTimestamp = (dateStr: string, step: number) => {
+  const timeStr = step === 0 ? '08:00:00' : step === 1 ? '12:00:00' : '20:00:00';
+  const localDate = new Date(`${dateStr}T${timeStr}`);
+  if (isNaN(localDate.getTime())) {
+    return `${dateStr}T${timeStr}Z`;
+  }
+  return localDate.toISOString();
 };
 
 // Format address text to bold main street and muted city/state/zip on second line
@@ -166,113 +228,6 @@ const splitAddress = (addressStr: string) => {
   }
 
   return { primary: addressStr, secondary: '' };
-};
-
-// Convert inspection time string to minutes of day for sorting
-const timeToMinutes = (timeStr: string): number => {
-  if (!timeStr) return 9999;
-  
-  const ampmMatch = timeStr.match(/^\s*(\d+):(\d+)\s*(AM|PM)\s*$/i);
-  if (ampmMatch) {
-    let hour = parseInt(ampmMatch[1]);
-    const min = parseInt(ampmMatch[2]);
-    const ampm = ampmMatch[3].toUpperCase();
-    if (ampm === 'PM' && hour < 12) hour += 12;
-    if (ampm === 'AM' && hour === 12) hour = 0;
-    return hour * 60 + min;
-  }
-  
-  const hhmmMatch = timeStr.match(/^\s*(\d+):(\d+)\s*$/);
-  if (hhmmMatch) {
-    const hour = parseInt(hhmmMatch[1]);
-    const min = parseInt(hhmmMatch[2]);
-    return hour * 60 + min;
-  }
-  
-  return 9999;
-};
-
-// Convert AM/PM time string to 24h format HH:MM for input time element
-const timeTo24h = (timeStr: string): string => {
-  if (!timeStr) return '';
-  
-  const ampmMatch = timeStr.match(/^\s*(\d+):(\d+)\s*(AM|PM)\s*$/i);
-  if (ampmMatch) {
-    let hour = parseInt(ampmMatch[1]);
-    const min = ampmMatch[2].padStart(2, '0');
-    const ampm = ampmMatch[3].toUpperCase();
-    if (ampm === 'PM' && hour < 12) hour += 12;
-    if (ampm === 'AM' && hour === 12) hour = 0;
-    return `${String(hour).padStart(2, '0')}:${min}`;
-  }
-  
-  if (/^\d{2}:\d{2}$/.test(timeStr)) {
-    return timeStr;
-  }
-  
-  const singleHhMatch = timeStr.match(/^\s*(\d):(\d{2})$/);
-  if (singleHhMatch) {
-    return `${singleHhMatch[1].padStart(2, '0')}:${singleHhMatch[2]}`;
-  }
-  
-  return '';
-};
-
-// Format a HH:MM 24h string to 12h AM/PM for cell display
-const formatTimeLabel = (timeStr: string): string => {
-  if (!timeStr) return 'xx';
-  if (/AM|PM/i.test(timeStr)) return timeStr;
-  
-  const match = timeStr.match(/^(\d{1,2}):(\d{2})$/);
-  if (match) {
-    let hour = parseInt(match[1]);
-    const min = match[2];
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    hour = hour % 12;
-    if (hour === 0) hour = 12;
-    return `${hour}:${min} ${ampm}`;
-  }
-  return timeStr;
-};
-
-// Helper to implement the 2026 row coloring rules
-const adjustAppraisalColorAndStatus = (app: Partial<Appraisal>, isCreation = false): Partial<Appraisal> => {
-  let category = app.color_category || 'black';
-  let stats = app.stats || '';
-  const typeLower = (app.type || '').toLowerCase();
-
-  if (isCreation) {
-    if (typeLower.includes('hybrid')) {
-      category = 'brown';
-    } else if (app.inspection_date && app.inspection_time) {
-      category = 'black';
-    } else {
-      category = 'blue';
-      stats = 'Unscheduled';
-    }
-  } else {
-    // During edits/updates:
-    if (typeLower.includes('hybrid')) {
-      category = 'brown';
-    }
-    // If inspection date and time are entered in a blue highlighted row, then it becomes black
-    else if (category === 'blue' && app.inspection_date && app.inspection_time) {
-      category = 'black';
-    }
-  }
-
-  // Common overrides:
-  if (category === 'blue') {
-    stats = 'Unscheduled';
-  } else if (category === 'black') {
-    stats = stats.replace(/\bunscheduled\b/gi, '').replace(/\s+/g, ' ').trim();
-  }
-
-  return {
-    ...app,
-    color_category: category,
-    stats: stats
-  };
 };
 
 // Relative due date warning badges (overdue only)
@@ -452,35 +407,6 @@ const CalendarPicker = ({ selectedDate, onSelectDate }: CalendarPickerProps) => 
 };
 
 export default function Dashboard() {
-  const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const isLongPressRef = useRef(false);
-
-  const handleTouchStart = (address: string) => () => {
-    isLongPressRef.current = false;
-    touchTimerRef.current = setTimeout(() => {
-      isLongPressRef.current = true;
-      if (navigator.vibrate) {
-        navigator.vibrate(50);
-      }
-      const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
-      window.open(mapsUrl, '_blank');
-    }, 600);
-  };
-
-  const handleTouchEnd = () => {
-    if (touchTimerRef.current) {
-      clearTimeout(touchTimerRef.current);
-      touchTimerRef.current = null;
-    }
-  };
-
-  const handleTouchMove = () => {
-    if (touchTimerRef.current) {
-      clearTimeout(touchTimerRef.current);
-      touchTimerRef.current = null;
-    }
-  };
-
   // Core Data State
   const [appraisals, setAppraisals] = useState<Appraisal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -541,6 +467,8 @@ export default function Dashboard() {
   const [editingCell, setEditingCell] = useState<{ id: string; field: keyof Appraisal } | null>(null);
   const [inlineValue, setInlineValue] = useState('');
   const inlineInputRef = useRef<HTMLInputElement>(null);
+  const touchTimeoutRef = useRef<any>(null);
+  const touchActiveRef = useRef(false);
 
   // Baseline YTD fee sum (pre-loaded spreadsheet history from screenshot)
   const YTD_BASELINE = 165360; 
@@ -572,9 +500,9 @@ export default function Dashboard() {
         const dateCompare = a.inspection_date.localeCompare(b.inspection_date);
         if (dateCompare !== 0) return dateCompare;
         
-        const timeA = timeToMinutes(a.inspection_time);
-        const timeB = timeToMinutes(b.inspection_time);
-        return timeA - timeB;
+        const timeA = convertTo24Hour(a.inspection_time);
+        const timeB = convertTo24Hour(b.inspection_time);
+        return timeA.localeCompare(timeB);
       }
       return 0;
     });
@@ -780,12 +708,6 @@ export default function Dashboard() {
   const handleRowClick = (id: string, e: React.MouseEvent) => {
     if (isHistorical) return;
 
-    // Avoid click handling if this was a Touch long-press redirect
-    if (isLongPressRef.current) {
-      isLongPressRef.current = false;
-      return;
-    }
-
     const currentFilteredIds = filteredAppraisals.map(a => a.id);
     
     if (e.shiftKey) {
@@ -811,12 +733,7 @@ export default function Dashboard() {
         if (e.ctrlKey || e.metaKey) {
           setSelectedRowIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
         } else {
-          // Normal click on selected row deselects it
-          if (selectedRowIds.includes(id)) {
-            setSelectedRowIds(prev => prev.filter(x => x !== id));
-          } else {
-            setSelectedRowIds([id]);
-          }
+          setSelectedRowIds([id]);
         }
         setLastSelectedId(id);
       }
@@ -830,7 +747,6 @@ export default function Dashboard() {
       });
       setLastSelectedId(id);
     } else {
-      // Normal single click on selected row deselects it
       if (selectedRowIds.includes(id)) {
         setSelectedRowIds(prev => prev.filter(x => x !== id));
         if (lastSelectedId === id) {
@@ -843,44 +759,6 @@ export default function Dashboard() {
     }
   };
 
-  const handleRowContextMenu = async (app: Appraisal, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation(); // prevent global window contextmenu deselect
-    
-    if (isHistorical) return;
-    if (app.stats === 'Inspected') return; // Do nothing if already Inspected
-    
-    const beforeAppraisal = { ...app };
-    let afterAppraisal = {
-      ...app,
-      stats: 'Inspected',
-      inspection_date: '',
-      inspection_time: ''
-    } as Appraisal;
-    
-    // Apply auto coloring coding rules (switches black/blue/etc. based on date/time removal)
-    afterAppraisal = adjustAppraisalColorAndStatus(afterAppraisal, false) as Appraisal;
-    
-    try {
-      const res = await fetch('/api/appraisals', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(afterAppraisal)
-      });
-      
-      if (res.ok) {
-        pushAction({
-          type: 'UPDATE',
-          appraisals: [afterAppraisal],
-          beforeAppraisals: [beforeAppraisal]
-        });
-        setAppraisals(prev => prev.map(a => a.id === app.id ? afterAppraisal : a));
-      }
-    } catch (err) {
-      console.error('Failed to update status to Inspected on right click:', err);
-    }
-  };
-
   const handlePaintRowsColor = async (color: string) => {
     if (isHistorical || selectedRowIds.length === 0) return;
     
@@ -890,15 +768,16 @@ export default function Dashboard() {
     for (const id of selectedRowIds) {
       const target = appraisals.find(a => a.id === id);
       if (target) {
-        let updated = { ...target, color_category: color };
-        updated = adjustAppraisalColorAndStatus(updated, false) as Appraisal;
+        let updatedStats = target.stats || '';
+        if (color === 'blue') {
+          updatedStats = 'Unscheduled';
+        } else if (color === 'black') {
+          updatedStats = removeUnscheduled(updatedStats);
+        }
         
-        if (
-          updated.color_category !== target.color_category || 
-          updated.stats !== target.stats
-        ) {
+        if (target.color_category !== color || target.stats !== updatedStats) {
           beforeAppraisals.push({ ...target });
-          afterAppraisals.push(updated);
+          afterAppraisals.push({ ...target, color_category: color, stats: updatedStats });
         }
       }
     }
@@ -967,26 +846,77 @@ export default function Dashboard() {
     }
   };
 
+  const handleMarkInspected = async (app: Appraisal) => {
+    if (isHistorical) return;
+    if (app.stats.toLowerCase().includes('unscheduled')) return;
+    
+    let updatedStats = app.stats || '';
+    if (!updatedStats.toLowerCase().includes('inspected')) {
+      updatedStats = updatedStats ? `${updatedStats} Inspected`.trim() : 'Inspected';
+    }
+    
+    const beforeAppraisal = { ...app };
+    const afterAppraisal = {
+      ...app,
+      inspection_date: '',
+      inspection_time: '',
+      stats: updatedStats
+    };
+    
+    try {
+      const res = await fetch('/api/appraisals', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(afterAppraisal),
+      });
+      if (res.ok) {
+        pushAction({
+          type: 'UPDATE',
+          appraisals: [afterAppraisal],
+          beforeAppraisals: [beforeAppraisal]
+        });
+        setAppraisals(prev => prev.map(a => a.id === app.id ? afterAppraisal : a));
+      }
+    } catch (err) {
+      console.error('Failed to mark inspected:', err);
+    }
+  };
+
   const handleAddAppraisal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isHistorical) return;
 
+    const formattedAddress = autoFormatAddress(formAddress);
+    const isHybrid = formType.toLowerCase().includes('hybrid');
+    const hasDateTime = formInspectionDate && formInspectionTime;
+
+    let finalColor = formColorCategory;
+    if (isHybrid) {
+      finalColor = 'brown';
+    } else if (hasDateTime) {
+      finalColor = 'black';
+    } else {
+      finalColor = 'blue';
+    }
+
+    let finalStats = formStats;
+    if (finalColor === 'blue') {
+      finalStats = 'Unscheduled';
+    } else if (finalColor === 'black') {
+      finalStats = removeUnscheduled(finalStats);
+    }
+
     const payload = {
-      address: formatAddress(formAddress),
+      address: formattedAddress,
       type: formType,
       inspection_date: formInspectionDate,
       inspection_time: formInspectionTime,
       due_date: formDueDate,
-      stats: formStats,
+      stats: finalStats,
       client: formClient,
       fee: Number(formFee) || 0,
-      color_category: formColorCategory,
+      color_category: finalColor,
     };
-
-    // Apply auto color and status constraints for creation
-    const adjusted = adjustAppraisalColorAndStatus(payload, true);
-    payload.color_category = adjusted.color_category!;
-    payload.stats = adjusted.stats!;
 
     try {
       const res = await fetch('/api/appraisals', {
@@ -1012,23 +942,41 @@ export default function Dashboard() {
     if (isHistorical || !targetAppraisal) return;
 
     const beforeAppraisal = { ...targetAppraisal };
+
+    const formattedAddress = autoFormatAddress(formAddress);
+    const isHybrid = formType.toLowerCase().includes('hybrid');
+    const hasDateTime = formInspectionDate && formInspectionTime;
+
+    let finalColor = formColorCategory;
+    if (isHybrid) {
+      finalColor = 'brown';
+    } else if (hasDateTime) {
+      finalColor = 'black';
+    } else {
+      if (formColorCategory === 'blue' || (!isHybrid && !hasDateTime && formColorCategory !== 'purple' && formColorCategory !== 'gold')) {
+        finalColor = 'blue';
+      }
+    }
+
+    let finalStats = formStats;
+    if (finalColor === 'blue') {
+      finalStats = 'Unscheduled';
+    } else if (finalColor === 'black') {
+      finalStats = removeUnscheduled(finalStats);
+    }
+
     const payload = {
       id: targetAppraisal.id,
-      address: formatAddress(formAddress),
+      address: formattedAddress,
       type: formType,
       inspection_date: formInspectionDate,
       inspection_time: formInspectionTime,
       due_date: formDueDate,
-      stats: formStats,
+      stats: finalStats,
       client: formClient,
       fee: Number(formFee) || 0,
-      color_category: formColorCategory,
+      color_category: finalColor,
     };
-
-    // Apply auto color and status constraints for updates
-    const adjusted = adjustAppraisalColorAndStatus(payload, false);
-    payload.color_category = adjusted.color_category!;
-    payload.stats = adjusted.stats!;
 
     try {
       const res = await fetch('/api/appraisals', {
@@ -1054,16 +1002,13 @@ export default function Dashboard() {
     e.preventDefault();
     if (isHistorical || !targetAppraisal) return;
 
-    // Address formatting before calling backend clone API
-    const formatted = formatAddress(cloneAddress);
-
     try {
       const res = await fetch('/api/appraisals/clone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: targetAppraisal.id,
-          newAddress: formatted,
+          newAddress: cloneAddress,
           newDueDate: cloneDueDate,
         }),
       });
@@ -1089,20 +1034,42 @@ export default function Dashboard() {
 
     let updatedValue = field === 'fee' ? Number(inlineValue) || 0 : inlineValue;
     if (field === 'address') {
-      updatedValue = formatAddress(inlineValue);
+      updatedValue = autoFormatAddress(inlineValue as string);
     }
-
-    let afterAppraisal = {
+    
+    const afterAppraisal = {
       ...beforeAppraisal,
       [field]: updatedValue
     } as Appraisal;
 
-    // Apply auto color and status constraints
-    afterAppraisal = adjustAppraisalColorAndStatus(afterAppraisal, false) as Appraisal;
+    // Apply color and status automations:
+    const isHybrid = afterAppraisal.type.toLowerCase().includes('hybrid');
+    const hasDateTime = afterAppraisal.inspection_date && afterAppraisal.inspection_time;
+
+    let finalColor = afterAppraisal.color_category;
+    if (isHybrid) {
+      finalColor = 'brown';
+    } else if (hasDateTime) {
+      finalColor = 'black';
+    } else {
+      if (beforeAppraisal.color_category === 'blue' || beforeAppraisal.color_category === 'black' || beforeAppraisal.color_category === 'brown') {
+        finalColor = 'blue';
+      }
+    }
+
+    let finalStats = afterAppraisal.stats;
+    if (finalColor === 'blue') {
+      finalStats = 'Unscheduled';
+    } else if (finalColor === 'black') {
+      finalStats = removeUnscheduled(finalStats);
+    }
+
+    afterAppraisal.color_category = finalColor;
+    afterAppraisal.stats = finalStats;
 
     if (
-      beforeAppraisal[field] === afterAppraisal[field] &&
-      beforeAppraisal.color_category === afterAppraisal.color_category &&
+      beforeAppraisal[field] === updatedValue && 
+      beforeAppraisal.color_category === afterAppraisal.color_category && 
       beforeAppraisal.stats === afterAppraisal.stats
     ) {
       setEditingCell(null);
@@ -1163,21 +1130,15 @@ export default function Dashboard() {
   };
 
   // Calendar Time Travel Handlers
-  const getSnapshotTimestamp = (dateStr: string, hour: number) => {
-    const [year, month, day] = dateStr.split('-').map(Number);
-    const d = new Date(year, month - 1, day, hour, 0, 0);
-    return d.toISOString();
-  };
-
   const handleSelectTravelDate = async (date: string) => {
     if (!date) return;
     setTravelDate(date);
     setIsTimeTravelOpen(false);
     setIsHistorical(true);
 
-    // Default to 8:00 PM snapshot (index 2)
-    setDaySliderValue(2);
-    const targetTimestamp = getSnapshotTimestamp(date, 20);
+    // Default to Noon (value 1)
+    setDaySliderValue(1);
+    const targetTimestamp = getSnapshotTimestamp(date, 1);
     fetchAppraisals(targetTimestamp);
   };
 
@@ -1185,11 +1146,7 @@ export default function Dashboard() {
     setDaySliderValue(val);
     if (!travelDate) return;
 
-    let hour = 8;
-    if (val === 1) hour = 12;
-    if (val === 2) hour = 20;
-
-    const targetTimestamp = getSnapshotTimestamp(travelDate, hour);
+    const targetTimestamp = getSnapshotTimestamp(travelDate, val);
     fetchAppraisals(targetTimestamp);
   };
 
@@ -1199,6 +1156,34 @@ export default function Dashboard() {
     setDaySliderValue(0);
     setIsTimeTravelOpen(false);
     fetchAppraisals();
+  };
+
+  // Touch event handlers for mobile long press (opens Google Maps)
+  const handleTouchStart = (address: string) => {
+    if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+    touchActiveRef.current = true;
+    touchTimeoutRef.current = setTimeout(() => {
+      if (touchActiveRef.current) {
+        window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`, '_blank');
+      }
+      touchTimeoutRef.current = null;
+    }, 800);
+  };
+
+  const handleTouchEnd = () => {
+    touchActiveRef.current = false;
+    if (touchTimeoutRef.current) {
+      clearTimeout(touchTimeoutRef.current);
+      touchTimeoutRef.current = null;
+    }
+  };
+
+  const handleTouchMove = () => {
+    touchActiveRef.current = false;
+    if (touchTimeoutRef.current) {
+      clearTimeout(touchTimeoutRef.current);
+      touchTimeoutRef.current = null;
+    }
   };
 
   // useEffect hooks (defined at the bottom to ensure handlers are available)
@@ -1234,16 +1219,6 @@ export default function Dashboard() {
         activeEl.getAttribute('contenteditable') === 'true'
       );
       
-      if (e.key === 'Escape') {
-        if (editingCell) {
-          setEditingCell(null);
-        } else {
-          setSelectedRowIds([]);
-          setLastSelectedId(null);
-        }
-        return;
-      }
-
       if (isInputActive && activeEl.id !== 'notesTextarea') {
         return;
       }
@@ -1265,6 +1240,11 @@ export default function Dashboard() {
         setLastSelectedId(null);
       }
 
+      if (e.key === 'Escape') {
+        setSelectedRowIds([]);
+        setLastSelectedId(null);
+      }
+
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         undo();
@@ -1281,39 +1261,40 @@ export default function Dashboard() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undoStack, redoStack, isHistorical, appraisals, searchQuery, colorFilter, sortBy, editingCell]);
+  }, [undoStack, redoStack, isHistorical, appraisals, searchQuery, colorFilter, sortBy]);
 
+  // Right click anywhere also deselects and does not bring up the right click menu
+  useEffect(() => {
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      setSelectedRowIds([]);
+      setLastSelectedId(null);
+    };
+    window.addEventListener('contextmenu', handleContextMenu);
+    return () => window.removeEventListener('contextmenu', handleContextMenu);
+  }, []);
+
+  // Clicking outside the main grid also deselects
   useEffect(() => {
     const handleDocumentClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (
-        target.closest('.appraisal-table') ||
-        target.closest('.toolbar') ||
-        target.closest('.modal-content') ||
-        target.closest('.custom-calendar-popover') ||
-        target.closest('#btnTimeTravel') ||
-        target.closest('#btnMobileLink') ||
-        target.closest('.btn') ||
-        target.closest('.action-icon-btn')
-      ) {
+      if (target.closest('.modal-overlay') || target.closest('.modal-content')) {
+        return;
+      }
+      if (target.closest('.selection-bar-active') || target.closest('.color-option-btn')) {
+        return;
+      }
+      if (target.closest('.appraisal-table')) {
+        return;
+      }
+      if (target.closest('#btnTimeTravel') || target.closest('.custom-calendar-popover')) {
         return;
       }
       setSelectedRowIds([]);
       setLastSelectedId(null);
     };
-
-    const handleGlobalContextMenu = (e: MouseEvent) => {
-      e.preventDefault();
-      setSelectedRowIds([]);
-      setLastSelectedId(null);
-    };
-
-    window.addEventListener('click', handleDocumentClick);
-    window.addEventListener('contextmenu', handleGlobalContextMenu);
-    return () => {
-      window.removeEventListener('click', handleDocumentClick);
-      window.removeEventListener('contextmenu', handleGlobalContextMenu);
-    };
+    document.addEventListener('click', handleDocumentClick);
+    return () => document.removeEventListener('click', handleDocumentClick);
   }, []);
 
   useEffect(() => {
@@ -1459,29 +1440,27 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* Add Appraisal Button in Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <button
-            onClick={() => {
-              resetAddForm();
-              setIsAddModalOpen(true);
-            }}
-            disabled={isHistorical}
-            className="btn btn-secondary"
-            style={{ 
-              padding: '0.35rem 0.75rem', 
-              fontSize: '0.75rem', 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '0.35rem', 
-              borderRadius: '6px' 
-            }}
-            id="btnAddAppraisalHeader"
-          >
-            <Plus className="w-4 h-4" />
-            Add Appraisal
-          </button>
-        </div>
+        {/* Relocated Add Appraisal Button */}
+        <button
+          onClick={() => {
+            resetAddForm();
+            setIsAddModalOpen(true);
+          }}
+          disabled={isHistorical}
+          className="btn btn-secondary"
+          style={{ 
+            padding: '0.35rem 0.75rem', 
+            fontSize: '0.75rem', 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '0.35rem', 
+            borderRadius: '6px' 
+          }}
+          id="btnAddAppraisal"
+        >
+          <Plus className="w-4 h-4" />
+          Add Appraisal
+        </button>
       </header>
 
       {/* Main Page Content */}
@@ -1513,24 +1492,24 @@ export default function Dashboard() {
                   className="timeline-slider"
                   id="dayRangeSlider"
                 />
-                <div className="timeline-labels" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                <div className="timeline-labels" style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span>8:00 AM</span>
                   <span>12:00 PM (Noon)</span>
                   <span>8:00 PM</span>
                 </div>
               </div>
-              <div className="date-indicator" style={{ minWidth: '180px', fontSize: '0.82rem', textAlign: 'right' }}>
-                <span>Viewing: {daySliderValue === 0 ? '8:00 AM' : daySliderValue === 1 ? '12:00 PM (Noon)' : '8:00 PM'}</span>
+              <div className="date-indicator" style={{ minWidth: '220px', fontSize: '0.82rem' }}>
+                <span>Snapshot: {daySliderValue === 0 ? '8:00 AM' : daySliderValue === 1 ? '12:00 PM (Noon)' : '8:00 PM'}</span>
               </div>
             </div>
           </div>
         )}
 
-        {/* Toolbar controls (Search, Filters, Sorting, Add, Undo/Redo) */}
+        {/* Toolbar controls (Search, Filters) */}
         <section className="toolbar">
           {selectedRowIds.length > 0 && !isHistorical ? (
             <div className="category-filter-row selection-bar-active" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border-color)', padding: '0.25rem 0.5rem', borderRadius: '8px', animation: 'fade-in 0.15s ease', width: '100%', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                 <span className="floating-selection-count" style={{ fontWeight: 700, fontSize: '0.75rem', color: 'var(--text-primary)' }}>
                   {selectedRowIds.length} Selected
                 </span>
@@ -1653,27 +1632,27 @@ export default function Dashboard() {
           <table className="appraisal-table">
             <thead>
               <tr>
-                <th className="sticky-col" style={{ textAlign: 'left', width: '28%' }}>Property Address</th>
-                <th style={{ textAlign: 'center', width: '12%' }}>Appraisal Type</th>
+                <th className="sticky-col" style={{ textAlign: 'left' }}>Property Address</th>
+                <th style={{ textAlign: 'center' }}>Appraisal Type</th>
                 <th 
                   onClick={() => setSortBy(sortBy === 'inspection' ? 'none' : 'inspection')}
-                  style={{ cursor: 'pointer', userSelect: 'none', textAlign: 'center', width: '12%' }}
                   className={sortBy === 'inspection' ? 'sorted-header' : ''}
+                  style={{ textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}
                 >
                   Inspection Date {sortBy === 'inspection' && '▼'}
                 </th>
-                <th style={{ textAlign: 'center', width: '10%' }}>Time</th>
+                <th style={{ textAlign: 'center' }}>Time</th>
                 <th 
                   onClick={() => setSortBy(sortBy === 'due_date' ? 'none' : 'due_date')}
-                  style={{ cursor: 'pointer', userSelect: 'none', textAlign: 'center', width: '12%' }}
                   className={sortBy === 'due_date' ? 'sorted-header' : ''}
+                  style={{ textAlign: 'center', cursor: 'pointer', userSelect: 'none' }}
                 >
                   Due Date {sortBy === 'due_date' && '▼'}
                 </th>
-                <th style={{ textAlign: 'center', width: '10%' }}>Status</th>
-                <th style={{ textAlign: 'center', width: '10%' }}>Client</th>
-                <th style={{ textAlign: 'right', width: '8%' }}>Fee</th>
-                <th style={{ textAlign: 'right', width: '85px' }}>Actions</th>
+                <th style={{ textAlign: 'center' }}>Status</th>
+                <th style={{ textAlign: 'center' }}>Client</th>
+                <th style={{ textAlign: 'right' }}>Fee</th>
+                <th style={{ textAlign: 'right', width: '120px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1705,34 +1684,25 @@ export default function Dashboard() {
                 filteredAppraisals.map((app) => {
                   const addr = splitAddress(app.address);
                   const dueBadge = getDueDateBadge(app.due_date);
-                  const inspDateSplit = formatDateLabelSplit(app.inspection_date);
-                  const dueDateSplit = formatDateLabelSplit(app.due_date);
+                  const inspDateLabel = splitDateLabel(app.inspection_date);
+                  const dueDateLabel = splitDateLabel(app.due_date);
                   
                   return (
                     <tr 
                       key={app.id}
                       className={`appraisal-row row-cat-${app.color_category} ${selectedRowIds.includes(app.id) ? 'selected-row' : ''}`}
-                      onClick={(e) => {
-                        if (isLongPressRef.current) {
-                          isLongPressRef.current = false;
-                          return;
-                        }
-                        handleRowClick(app.id, e);
-                      }}
-                      onContextMenu={(e) => handleRowContextMenu(app, e)}
-                      onTouchStart={handleTouchStart(app.address)}
+                      onClick={(e) => handleRowClick(app.id, e)}
+                      onTouchStart={() => handleTouchStart(app.address)}
                       onTouchEnd={handleTouchEnd}
                       onTouchMove={handleTouchMove}
-                      onTouchCancel={handleTouchEnd}
                     >
-                      {/* Frozen Address column - Double click opens in Google Maps */}
+                      {/* Frozen Address column - Double click to Google Maps on desktop */}
                       <td 
-                        className="sticky-col"
+                        className="editable-cell sticky-col"
                         style={{ textAlign: 'left' }}
                         onDoubleClick={(e) => {
                           e.stopPropagation();
-                          const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(app.address)}`;
-                          window.open(mapsUrl, '_blank');
+                          window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(app.address)}`, '_blank');
                         }}
                       >
                         <div>
@@ -1747,8 +1717,7 @@ export default function Dashboard() {
                       <td 
                         className="editable-cell"
                         style={{ textAlign: 'center' }}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
+                        onDoubleClick={() => {
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'type' });
                           setInlineValue(app.type);
@@ -1777,8 +1746,7 @@ export default function Dashboard() {
                       <td 
                         className="editable-cell"
                         style={{ textAlign: 'center' }}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
+                        onDoubleClick={() => {
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'inspection_date' });
                           setInlineValue(app.inspection_date);
@@ -1799,10 +1767,10 @@ export default function Dashboard() {
                             onClick={(e) => e.stopPropagation()}
                           />
                         ) : (
-                          inspDateSplit ? (
-                            <div className="date-display-split">
-                              <div className="date-weekday">{inspDateSplit.weekday}</div>
-                              <div className="date-sub">{inspDateSplit.date}</div>
+                          app.inspection_date ? (
+                            <div className="date-cell-wrapper-stacked" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
+                              <span className="date-weekday">{inspDateLabel.weekday}</span>
+                              {inspDateLabel.dateVal && <span className="date-sub">{inspDateLabel.dateVal}</span>}
                             </div>
                           ) : (
                             <span style={{ color: 'var(--text-muted)' }}>xx</span>
@@ -1814,19 +1782,18 @@ export default function Dashboard() {
                       <td 
                         className="editable-cell"
                         style={{ textAlign: 'center' }}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
+                        onDoubleClick={() => {
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'inspection_time' });
-                          setInlineValue(timeTo24h(app.inspection_time));
+                          setInlineValue(app.inspection_time);
                         }}
                       >
                         {editingCell?.id === app.id && editingCell?.field === 'inspection_time' ? (
                           <input
                             ref={inlineInputRef}
                             type="time"
-                            value={inlineValue}
-                            onChange={(e) => setInlineValue(e.target.value)}
+                            value={convertTo24Hour(inlineValue)}
+                            onChange={(e) => setInlineValue(convertTo12Hour(e.target.value))}
                             onBlur={() => handleInlineSave(app.id, 'inspection_time')}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') handleInlineSave(app.id, 'inspection_time');
@@ -1838,7 +1805,7 @@ export default function Dashboard() {
                         ) : (
                           app.inspection_time ? (
                             <div className="date-cell-wrapper" style={{ fontWeight: 400, justifyContent: 'center' }}>
-                              <span>{formatTimeLabel(app.inspection_time)}</span>
+                              <span>{app.inspection_time}</span>
                             </div>
                           ) : (
                             <span style={{ color: 'var(--text-muted)' }}>xx</span>
@@ -1850,8 +1817,7 @@ export default function Dashboard() {
                       <td 
                         className="editable-cell"
                         style={{ textAlign: 'center' }}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
+                        onDoubleClick={() => {
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'due_date' });
                           setInlineValue(app.due_date);
@@ -1872,14 +1838,14 @@ export default function Dashboard() {
                             onClick={(e) => e.stopPropagation()}
                           />
                         ) : (
-                          dueDateSplit ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', alignItems: 'center' }}>
-                              <div className="date-display-split">
-                                <div className="date-weekday">{dueDateSplit.weekday}</div>
-                                <div className="date-sub">{dueDateSplit.date}</div>
+                          app.due_date ? (
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.15rem' }}>
+                              <div className="date-cell-wrapper-stacked" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
+                                <span className="date-weekday">{dueDateLabel.weekday}</span>
+                                {dueDateLabel.dateVal && <span className="date-sub">{dueDateLabel.dateVal}</span>}
                               </div>
                               {dueBadge && (
-                                <div style={{ display: 'flex' }}>
+                                <div style={{ display: 'flex', justifyContent: 'center' }}>
                                   <span className={`date-badge ${dueBadge.className}`}>{dueBadge.text}</span>
                                 </div>
                               )}
@@ -1894,8 +1860,7 @@ export default function Dashboard() {
                       <td 
                         className="editable-cell"
                         style={{ textAlign: 'center' }}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
+                        onDoubleClick={() => {
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'stats' });
                           setInlineValue(app.stats);
@@ -1930,8 +1895,7 @@ export default function Dashboard() {
                       <td 
                         className="editable-cell"
                         style={{ textAlign: 'center' }}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
+                        onDoubleClick={() => {
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'client' });
                           setInlineValue(app.client);
@@ -1960,8 +1924,7 @@ export default function Dashboard() {
                       <td 
                         className="editable-cell fee-cell"
                         style={{ textAlign: 'right' }}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
+                        onDoubleClick={() => {
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'fee' });
                           setInlineValue(String(app.fee));
@@ -1989,13 +1952,23 @@ export default function Dashboard() {
                       {/* Actions column */}
                       <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                         <div className="row-actions">
+                          {/* Mark Inspected Square Button */}
+                          <button
+                            onClick={() => handleMarkInspected(app)}
+                            disabled={isHistorical || app.stats.toLowerCase().includes('unscheduled')}
+                            title={app.stats.toLowerCase().includes('unscheduled') ? "Cannot mark unscheduled appraisal as inspected" : "Mark Inspected"}
+                            className="action-icon-btn check-inspected"
+                            style={{ opacity: app.stats.toLowerCase().includes('unscheduled') ? 0.3 : 1 }}
+                          >
+                            <CheckSquare className="w-4 h-4" />
+                          </button>
                           <button
                             onClick={() => openCloneModal(app)}
                             disabled={isHistorical}
                             title="Copy / Clone similar appraisal"
                             className="action-icon-btn"
                           >
-                            <Copy className="w-3.5 h-3.5" />
+                            <Copy className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => openEditModal(app)}
@@ -2003,7 +1976,7 @@ export default function Dashboard() {
                             title="Edit full appraisal details"
                             className="action-icon-btn"
                           >
-                            <Edit3 className="w-3.5 h-3.5" />
+                            <Edit3 className="w-4 h-4" />
                           </button>
                           <button
                             onClick={() => handleDeleteAppraisal(app.id)}
@@ -2011,7 +1984,7 @@ export default function Dashboard() {
                             title="Delete appointment"
                             className="action-icon-btn delete"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
@@ -2096,7 +2069,7 @@ export default function Dashboard() {
                       ${ytdFeeSum.toLocaleString('en-US')}
                     </span>
                     <span className="ytd-projected-val" id="kpiYtdProjectedSidebar">
-                      ${projectedFeeSum.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                      Proj: ${projectedFeeSum.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                     </span>
                   </div>
                 </div>
@@ -2271,8 +2244,8 @@ export default function Dashboard() {
                   <label>Time</label>
                   <input
                     type="time"
-                    value={formInspectionTime}
-                    onChange={(e) => setFormInspectionTime(e.target.value)}
+                    value={convertTo24Hour(formInspectionTime)}
+                    onChange={(e) => setFormInspectionTime(convertTo12Hour(e.target.value))}
                     className="form-input"
                   />
                 </div>
@@ -2405,8 +2378,8 @@ export default function Dashboard() {
                   <label>Time</label>
                   <input
                     type="time"
-                    value={formInspectionTime}
-                    onChange={(e) => setFormInspectionTime(e.target.value)}
+                    value={convertTo24Hour(formInspectionTime)}
+                    onChange={(e) => setFormInspectionTime(convertTo12Hour(e.target.value))}
                     className="form-input"
                   />
                 </div>
