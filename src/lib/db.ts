@@ -33,7 +33,15 @@ export async function getDb(): Promise<Database> {
       stats TEXT,
       client TEXT NOT NULL,
       fee INTEGER NOT NULL,  -- stored in dollars
-      color_category TEXT NOT NULL DEFAULT 'black' -- 'black', 'blue', 'purple', 'brown', 'gold'
+      color_category TEXT NOT NULL DEFAULT 'black', -- 'black', 'blue', 'purple', 'brown', 'gold'
+      lat REAL,
+      lng REAL,
+      status TEXT NOT NULL DEFAULT 'CREATED',
+      created_at TEXT,
+      updated_at TEXT,
+      inspected_at TEXT,
+      completed_at TEXT,
+      cancelled_at TEXT
     );
   `);
 
@@ -50,11 +58,54 @@ export async function getDb(): Promise<Database> {
       client TEXT,
       fee INTEGER,
       color_category TEXT,
+      lat REAL,
+      lng REAL,
       valid_from TEXT NOT NULL, -- ISO8601 Timestamp of change (e.g. 2026-05-23T20:51:00Z)
       valid_to TEXT,             -- ISO8601 Timestamp when replaced/deleted (NULL = current)
       action_type TEXT NOT NULL  -- 'INSERT', 'UPDATE', 'DELETE'
     );
   `);
+
+  await dbInstance.exec(`
+    CREATE TABLE IF NOT EXISTS appraisal_events (
+      event_id TEXT PRIMARY KEY,
+      appraisal_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      changed_fields TEXT,
+      previous_values TEXT,
+      new_values TEXT
+    );
+  `);
+
+  // Add columns to existing databases safely
+  try {
+    await dbInstance.exec('ALTER TABLE appraisals ADD COLUMN lat REAL;');
+    await dbInstance.exec('ALTER TABLE appraisals ADD COLUMN lng REAL;');
+  } catch (e) {
+    // Columns likely already exist
+  }
+  
+  try {
+    await dbInstance.exec("ALTER TABLE appraisals ADD COLUMN status TEXT NOT NULL DEFAULT 'CREATED';");
+    await dbInstance.exec('ALTER TABLE appraisals ADD COLUMN created_at TEXT;');
+    await dbInstance.exec('ALTER TABLE appraisals ADD COLUMN updated_at TEXT;');
+    await dbInstance.exec('ALTER TABLE appraisals ADD COLUMN inspected_at TEXT;');
+    await dbInstance.exec('ALTER TABLE appraisals ADD COLUMN completed_at TEXT;');
+    await dbInstance.exec('ALTER TABLE appraisals ADD COLUMN cancelled_at TEXT;');
+    
+    // Seed existing records with created_at if null
+    const nowStr = new Date().toISOString();
+    await dbInstance.run('UPDATE appraisals SET created_at = ? WHERE created_at IS NULL', nowStr);
+  } catch (e) {
+    // Columns likely already exist
+  }
+  try {
+    await dbInstance.exec('ALTER TABLE appraisals_history ADD COLUMN lat REAL;');
+    await dbInstance.exec('ALTER TABLE appraisals_history ADD COLUMN lng REAL;');
+  } catch (e) {
+    // Columns likely already exist
+  }
 
   await dbInstance.exec(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -192,8 +243,8 @@ export async function getDb(): Promise<Database> {
 
     for (const app of defaultAppraisals) {
       await dbInstance.run(
-        `INSERT INTO appraisals (id, address, type, inspection_date, inspection_time, due_date, stats, client, fee, color_category)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO appraisals (id, address, type, inspection_date, inspection_time, due_date, stats, client, fee, color_category, lat, lng, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'CREATED', ?)`,
         app.id,
         app.address,
         app.type,
@@ -203,13 +254,14 @@ export async function getDb(): Promise<Database> {
         app.stats,
         app.client,
         app.fee,
-        app.color_category
+        app.color_category,
+        nowStr
       );
 
       // Insert first history record for each
       await dbInstance.run(
-        `INSERT INTO appraisals_history (appraisal_id, address, type, inspection_date, inspection_time, due_date, stats, client, fee, color_category, valid_from, valid_to, action_type)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'INSERT')`,
+        `INSERT INTO appraisals_history (appraisal_id, address, type, inspection_date, inspection_time, due_date, stats, client, fee, color_category, lat, lng, valid_from, valid_to, action_type)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, 'INSERT')`,
         app.id,
         app.address,
         app.type,
@@ -251,8 +303,8 @@ export async function logHistory(
     if (current) {
       // Insert new version
       await db.run(
-        `INSERT INTO appraisals_history (appraisal_id, address, type, inspection_date, inspection_time, due_date, stats, client, fee, color_category, valid_from, valid_to, action_type)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+        `INSERT INTO appraisals_history (appraisal_id, address, type, inspection_date, inspection_time, due_date, stats, client, fee, color_category, lat, lng, valid_from, valid_to, action_type)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
         current.id,
         current.address,
         current.type,
@@ -263,9 +315,36 @@ export async function logHistory(
         current.client,
         current.fee,
         current.color_category,
+        current.lat,
+        current.lng,
         nowStr,
         actionType
       );
     }
   }
+}
+
+// Log an event to the append-only event store
+export async function logEvent(
+  db: Database,
+  appraisalId: string,
+  eventType: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'ORDER_COMPLETED' | 'ORDER_CANCELLED',
+  changedFields: string[] | null = null,
+  previousValues: any = null,
+  newValues: any = null
+) {
+  const nowStr = new Date().toISOString();
+  const eventId = crypto.randomUUID();
+  
+  await db.run(
+    `INSERT INTO appraisal_events (event_id, appraisal_id, event_type, timestamp, changed_fields, previous_values, new_values)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    eventId,
+    appraisalId,
+    eventType,
+    nowStr,
+    changedFields ? JSON.stringify(changedFields) : null,
+    previousValues ? JSON.stringify(previousValues) : null,
+    newValues ? JSON.stringify(newValues) : null
+  );
 }

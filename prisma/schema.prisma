@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model appraisals {
+  id              String? @id
+  address         String
+  type            String
+  inspection_date String?
+  inspection_time String?
+  due_date        String
+  stats           String?
+  client          String
+  fee             Int
+  color_category  String  @default("black")
+  status          String  @default("CREATED")
+  created_at      String?
+  updated_at      String?
+  inspected_at    String?
+  completed_at    String?
+  cancelled_at    String?
+
+  @@ignore
+}
+
+model appraisal_events {
+  event_id        String  @id
+  appraisal_id    String
+  event_type      String
+  timestamp       String
+  changed_fields  String?
+  previous_values String?
+  new_values      String?
+}
+
+model appraisals_history {
+  history_id      Int     @id @default(autoincrement())
+  appraisal_id    String
+  address         String
+  type            String
+  inspection_date String?
+  inspection_time String?
+  due_date        String?
+  stats           String?
+  client          String?
+  fee             Int?
+  color_category  String?
+  valid_from      String
+  valid_to        String?
+  action_type     String
+}
+
+/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
+model settings {
+  key   String? @id
+  value String
+
+  @@ignore
+}

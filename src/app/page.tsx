@@ -18,9 +18,10 @@ import {
   Info,
   ChevronLeft,
   ChevronRight,
-  CheckSquare
+  CheckSquare,
+  CheckCircle,
+  Map
 } from 'lucide-react';
-import QRCode from 'qrcode';
 
 interface Appraisal {
   id: string;
@@ -33,12 +34,9 @@ interface Appraisal {
   client: string;
   fee: number;
   color_category: string;
-}
-
-interface NetworkIp {
-  name: string;
-  address: string;
-  isTailscale: boolean;
+  status?: string;
+  lat?: number;
+  lng?: number;
 }
 
 interface HistoryAction {
@@ -47,364 +45,11 @@ interface HistoryAction {
   beforeAppraisals?: Appraisal[];
 }
 
-// Automatically format Illinois addresses
-const autoFormatAddress = (addressStr: string): string => {
-  if (!addressStr) return '';
-  const clean = addressStr.trim();
-  
-  const suffixes = [
-    'st', 'street', 'rd', 'road', 'dr', 'drive', 'ave', 'avenue', 
-    'ln', 'lane', 'blvd', 'boulevard', 'ct', 'court', 'pl', 'place', 
-    'wy', 'way', 'ter', 'terrace', 'cir', 'circle', 'hwy', 'highway', 
-    'pkwy', 'parkway', 'loop'
-  ];
+import { autoFormatAddress, splitDateLabel, convertTo24Hour, convertTo12Hour, removeUnscheduled, getSnapshotTimestamp, splitAddress, getDueDateBadge } from '../lib/utils';
+import { CalendarPicker } from '../components/CalendarPicker';
+import dynamic from 'next/dynamic';
 
-  const suffixPattern = new RegExp(
-    `^(.*\\b(${suffixes.join('|')})\\b[.,\\s]*)(.*)$`, 
-    'i'
-  );
-  
-  const match = clean.match(suffixPattern);
-  if (match) {
-    let streetPart = match[1].trim();
-    const remaining = match[3].trim();
-    
-    if (streetPart.endsWith(',')) {
-      streetPart = streetPart.slice(0, -1).trim();
-    }
-    
-    let cityPart = remaining;
-    let zipPart = '';
-    
-    const zipMatch = cityPart.match(/\b\d{5}\b/);
-    if (zipMatch) {
-      zipPart = zipMatch[0];
-      cityPart = cityPart.replace(/\b\d{5}\b/, '').trim();
-    }
-    
-    cityPart = cityPart.replace(/,?\s*\b(il|illinois)\b/i, '').trim();
-    
-    if (cityPart.endsWith(',')) {
-      cityPart = cityPart.slice(0, -1).trim();
-    }
-    if (cityPart.startsWith(',')) {
-      cityPart = cityPart.slice(1).trim();
-    }
-    
-    if (!cityPart) {
-      if (!clean.toUpperCase().includes('IL')) {
-        return `${clean}, IL`;
-      }
-      return clean;
-    }
-    
-    let formatted = `${streetPart}, ${cityPart}, IL`;
-    if (zipPart) {
-      formatted += ` ${zipPart}`;
-    }
-    return formatted;
-  }
-  
-  if (!clean.toLowerCase().includes('il') && !clean.toLowerCase().includes('illinois')) {
-    return `${clean}, IL`;
-  }
-  
-  return clean;
-};
-
-// Split date into Day of Week and Date values
-const splitDateLabel = (dateStr: string) => {
-  if (!dateStr || dateStr === 'xx') return { weekday: 'xx', dateVal: '' };
-  const date = new Date(dateStr + 'T00:00:00');
-  if (isNaN(date.getTime())) return { weekday: dateStr, dateVal: '' };
-  
-  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(date);
-  const dateVal = new Intl.DateTimeFormat('en-US', { month: '2-digit', day: '2-digit' }).format(date);
-  
-  return { weekday, dateVal };
-};
-
-// Time converter helpers (between 12-hour AM/PM and 24-hour HH:mm)
-const convertTo24Hour = (timeStr: string): string => {
-  if (!timeStr) return '';
-  if (/^\d{2}:\d{2}$/.test(timeStr)) return timeStr;
-  
-  const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!match) return timeStr;
-  
-  let hours = parseInt(match[1]);
-  const minutes = match[2];
-  const ampm = match[3].toUpperCase();
-  
-  if (ampm === 'PM' && hours < 12) hours += 12;
-  if (ampm === 'AM' && hours === 12) hours = 0;
-  
-  return `${String(hours).padStart(2, '0')}:${minutes}`;
-};
-
-const convertTo12Hour = (timeStr24: string): string => {
-  if (!timeStr24) return '';
-  const match = timeStr24.match(/^(\d{2}):(\d{2})$/);
-  if (!match) return timeStr24;
-  
-  let hours = parseInt(match[1]);
-  const minutes = match[2];
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  
-  hours = hours % 12;
-  if (hours === 0) hours = 12;
-  
-  return `${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
-};
-
-// Remove "unscheduled" (case-insensitive) from a status string
-const removeUnscheduled = (stats: string) => {
-  if (!stats) return '';
-  return stats
-    .replace(/\bunscheduled\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-};
-
-// Calculate fixed snapshot UTC ISO timestamp
-const getSnapshotTimestamp = (dateStr: string, step: number) => {
-  const timeStr = step === 0 ? '08:00:00' : step === 1 ? '12:00:00' : '20:00:00';
-  const localDate = new Date(`${dateStr}T${timeStr}`);
-  if (isNaN(localDate.getTime())) {
-    return `${dateStr}T${timeStr}Z`;
-  }
-  return localDate.toISOString();
-};
-
-// Format address text to bold main street and muted city/state/zip on second line
-const splitAddress = (addressStr: string) => {
-  if (!addressStr) return { primary: '', secondary: '' };
-  
-  // 1. Split by first comma if exists
-  const commaIndex = addressStr.indexOf(',');
-  if (commaIndex !== -1) {
-    return {
-      primary: addressStr.substring(0, commaIndex).trim(),
-      secondary: addressStr.substring(commaIndex + 1).trim()
-    };
-  }
-
-  // 2. Look for standard street suffixes as whole words
-  const suffixes = [
-    'st', 'street', 'ln', 'lane', 'ave', 'avenue', 'rd', 'road', 
-    'blvd', 'boulevard', 'dr', 'drive', 'pl', 'place', 'ct', 'court', 
-    'way', 'ter', 'terrace', 'cir', 'circle', 'hwy', 'highway', 'pkwy', 'parkway'
-  ];
-  
-  const words = addressStr.split(/\s+/);
-  for (let i = 0; i < words.length; i++) {
-    const normalizedWord = words[i].toLowerCase().replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "");
-    if (suffixes.includes(normalizedWord)) {
-      const primary = words.slice(0, i + 1).join(' ');
-      const secondary = words.slice(i + 1).join(' ');
-      return { primary, secondary };
-    }
-  }
-
-  // 3. Fallback to known Illinois cities
-  const cities = ['algonquin', 'geneva', 'bensenville', 'vernon hills', 'chicago', 'winfield', 'highland park', 'arlington heights'];
-  const lowerAddress = addressStr.toLowerCase();
-  for (const city of cities) {
-    const idx = lowerAddress.indexOf(' ' + city);
-    if (idx !== -1) {
-      return {
-        primary: addressStr.substring(0, idx + 1).trim(),
-        secondary: addressStr.substring(idx + 1).trim()
-      };
-    }
-  }
-
-  // 4. Fallback split after first 3 words
-  if (words.length > 3) {
-    return {
-      primary: words.slice(0, 3).join(' '),
-      secondary: words.slice(3).join(' ')
-    };
-  }
-
-  return { primary: addressStr, secondary: '' };
-};
-
-// Relative due date warning badges (overdue only)
-const getDueDateBadge = (dueDateStr: string) => {
-  if (!dueDateStr) return null;
-  const due = new Date(dueDateStr + 'T00:00:00');
-  if (isNaN(due.getTime())) return null;
-  
-  const cur = new Date();
-  cur.setHours(0, 0, 0, 0);
-  due.setHours(0, 0, 0, 0);
-  
-  const diffMs = due.getTime() - cur.getTime();
-  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-  
-  if (diffDays < 0) {
-    return { text: `${Math.abs(diffDays)}d overdue`, className: 'date-badge-overdue' };
-  }
-  return null;
-};
-
-// Custom Calendar Picker Component for Time Travel
-interface CalendarPickerProps {
-  selectedDate: string;
-  onSelectDate: (date: string) => void;
-}
-
-const CalendarPicker = ({ selectedDate, onSelectDate }: CalendarPickerProps) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const initialDate = selectedDate ? new Date(selectedDate + 'T00:00:00') : new Date();
-  const [viewDate, setViewDate] = useState(isNaN(initialDate.getTime()) ? new Date() : initialDate);
-
-  const viewYear = viewDate.getFullYear();
-  const viewMonth = viewDate.getMonth();
-
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
-
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const firstDayIndex = new Date(viewYear, viewMonth, 1).getDay();
-
-  const handlePrevMonth = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setViewDate(new Date(viewYear, viewMonth - 1, 1));
-  };
-
-  const handleNextMonth = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setViewDate(new Date(viewYear, viewMonth + 1, 1));
-  };
-
-  const days = [];
-  for (let i = 0; i < firstDayIndex; i++) {
-    days.push(null);
-  }
-  for (let d = 1; d <= daysInMonth; d++) {
-    days.push(d);
-  }
-
-  const handleDayClick = (day: number, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const dateStr = `${viewYear}-${pad(viewMonth + 1)}-${pad(day)}`;
-    
-    const clickedDate = new Date(dateStr + 'T00:00:00');
-    if (clickedDate.getTime() > today.getTime()) return;
-
-    onSelectDate(dateStr);
-  };
-
-  const isSelected = (day: number) => {
-    if (!selectedDate) return false;
-    const parts = selectedDate.split('-');
-    return (
-      parseInt(parts[0]) === viewYear &&
-      parseInt(parts[1]) === viewMonth + 1 &&
-      parseInt(parts[2]) === day
-    );
-  };
-
-  const isToday = (day: number) => {
-    const curToday = new Date();
-    return (
-      curToday.getFullYear() === viewYear &&
-      curToday.getMonth() === viewMonth &&
-      curToday.getDate() === day
-    );
-  };
-
-  const isFuture = (day: number) => {
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const dateStr = `${viewYear}-${pad(viewMonth + 1)}-${pad(day)}`;
-    const clickedDate = new Date(dateStr + 'T00:00:00');
-    return clickedDate.getTime() > today.getTime();
-  };
-
-  return (
-    <div className="custom-calendar-popover" onClick={(e) => e.stopPropagation()}>
-      <div className="calendar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-        <button 
-          type="button" 
-          onClick={handlePrevMonth} 
-          className="action-icon-btn"
-          style={{ padding: '0.2rem', borderRadius: '4px' }}
-        >
-          <ChevronLeft className="w-4 h-4 text-zinc-400" />
-        </button>
-        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-          {monthNames[viewMonth]} {viewYear}
-        </span>
-        <button 
-          type="button" 
-          onClick={handleNextMonth} 
-          className="action-icon-btn"
-          style={{ padding: '0.2rem', borderRadius: '4px' }}
-        >
-          <ChevronRight className="w-4 h-4 text-zinc-400" />
-        </button>
-      </div>
-      
-      <div className="calendar-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center' }}>
-        {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(w => (
-          <div key={w} style={{ fontSize: '0.62rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', paddingBottom: '2px' }}>
-            {w}
-          </div>
-        ))}
-        {days.map((day, idx) => {
-          if (day === null) {
-            return <div key={`empty-${idx}`} style={{ padding: '6px' }}></div>;
-          }
-          
-          const selected = isSelected(day);
-          const current = isToday(day);
-          const future = isFuture(day);
-
-          return (
-            <button
-              key={`day-${day}`}
-              type="button"
-              disabled={future}
-              onClick={(e) => handleDayClick(day, e)}
-              className={`calendar-day-btn ${selected ? 'selected' : ''} ${current ? 'today' : ''} ${future ? 'future' : ''}`}
-              style={{
-                width: '100%',
-                padding: '5px 0',
-                fontSize: '0.72rem',
-                fontWeight: current || selected ? '600' : '400',
-                borderRadius: '4px',
-                border: 'none',
-                cursor: future ? 'not-allowed' : 'pointer',
-                backgroundColor: selected 
-                  ? 'var(--accent-color)' 
-                  : current 
-                    ? 'rgba(59,130,246,0.15)' 
-                    : 'transparent',
-                color: selected 
-                  ? '#ffffff' 
-                  : future 
-                    ? 'var(--text-muted)' 
-                    : current 
-                      ? 'var(--accent-color)' 
-                      : 'var(--text-primary)',
-                opacity: future ? 0.25 : 1,
-              }}
-            >
-              {day}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
+const MapOverlay = dynamic(() => import('../components/MapOverlay'), { ssr: false });
 
 export default function Dashboard() {
   // Core Data State
@@ -426,9 +71,6 @@ export default function Dashboard() {
   const [notesFontSize, setNotesFontSize] = useState(16);
   const [weeksInYear, setWeeksInYear] = useState<number>(52);
   const [showFontControls, setShowFontControls] = useState(false);
-  const [systemIps, setSystemIps] = useState<NetworkIp[]>([]);
-  const [activeIp, setActiveIp] = useState<string>('');
-  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
   
   // UI Controls State
   const [searchQuery, setSearchQuery] = useState('');
@@ -440,13 +82,16 @@ export default function Dashboard() {
   const [daySliderValue, setDaySliderValue] = useState(0);
   const [isTimeTravelOpen, setIsTimeTravelOpen] = useState(false);
 
+  // View Mode
+  const [viewMode, setViewMode] = useState<'active' | 'completed'>('active');
+
 
 
   // Modals & Temp States
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isCloneModalOpen, setIsCloneModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [targetAppraisal, setTargetAppraisal] = useState<Appraisal | null>(null);
   
   // Add/Edit Form States
@@ -515,12 +160,16 @@ export default function Dashboard() {
   const projectedFeeSum = activeFeeSum * weeksInYear;
 
   // Core functions and handlers (defined above useEffect hooks)
-  const fetchAppraisals = async (timestamp?: string) => {
+  const fetchAppraisals = async (timestamp?: string, forceMode?: 'active' | 'completed') => {
     setIsLoading(true);
+    const mode = forceMode || viewMode;
     try {
-      const url = timestamp 
-        ? `/api/appraisals?timestamp=${encodeURIComponent(timestamp)}`
-        : '/api/appraisals';
+      let url = '/api/appraisals';
+      if (timestamp) {
+         url = `/api/appraisals?timestamp=${encodeURIComponent(timestamp)}`;
+      } else if (mode === 'completed') {
+         url = '/api/appraisals?status=COMPLETED,CANCELLED';
+      }
       const res = await fetch(url);
       const data = await res.json();
       if (data.appraisals) {
@@ -541,15 +190,6 @@ export default function Dashboard() {
         setNotes(data.notes || '');
         setNotesFontSize(data.notes_font_size || 16);
         setWeeksInYear(data.weeks_in_year || 52);
-        if (data.ips) {
-          setSystemIps(data.ips);
-          const tailscaleIp = data.ips.find((ip: NetworkIp) => ip.isTailscale);
-          if (tailscaleIp) {
-            setActiveIp(tailscaleIp.address);
-          } else if (data.ips.length > 0) {
-            setActiveIp(data.ips[0].address);
-          }
-        }
       }
     } catch (err) {
       console.error('Failed to fetch settings:', err);
@@ -882,6 +522,34 @@ export default function Dashboard() {
     }
   };
 
+  const handleMarkCompleted = async (app: Appraisal) => {
+    if (isHistorical) return;
+    
+    const beforeAppraisal = { ...app };
+    const afterAppraisal = {
+      ...app,
+      status: 'COMPLETED' as any // Using any to bypass strict type checking if status is missing in old versions
+    };
+    
+    try {
+      const res = await fetch('/api/appraisals', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(afterAppraisal),
+      });
+      if (res.ok) {
+        pushAction({
+          type: 'UPDATE',
+          appraisals: [afterAppraisal],
+          beforeAppraisals: [beforeAppraisal]
+        });
+        setAppraisals(prev => prev.map(a => a.id === app.id ? afterAppraisal : a));
+      }
+    } catch (err) {
+      console.error('Failed to mark completed:', err);
+    }
+  };
+
   const handleAddAppraisal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isHistorical) return;
@@ -1158,13 +826,13 @@ export default function Dashboard() {
     fetchAppraisals();
   };
 
-  // Touch event handlers for mobile long press (opens Google Maps)
+  // Touch event handlers for mobile long press (searches Google)
   const handleTouchStart = (address: string) => {
     if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
     touchActiveRef.current = true;
     touchTimeoutRef.current = setTimeout(() => {
       if (touchActiveRef.current) {
-        window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`, '_blank');
+        window.open(`https://www.google.com/search?q=${encodeURIComponent(address)}`, '_blank');
       }
       touchTimeoutRef.current = null;
     }, 800);
@@ -1188,23 +856,28 @@ export default function Dashboard() {
 
   // useEffect hooks (defined at the bottom to ensure handlers are available)
   useEffect(() => {
-    fetchAppraisals();
-    fetchSettings();
-  }, []);
-
-  useEffect(() => {
-    if (activeIp) {
-      const url = `http://${activeIp}:3000`;
-      QRCode.toDataURL(url, { margin: 2, width: 120 })
-        .then(url => setQrCodeDataUrl(url))
-        .catch(err => console.error('QR Code error:', err));
+    if (!isHistorical) {
+      fetchAppraisals();
     }
-  }, [activeIp]);
+    fetchSettings();
+  }, [viewMode]);
 
   useEffect(() => {
     if (editingCell && inlineInputRef.current) {
       inlineInputRef.current.focus();
-      inlineInputRef.current.select();
+      if (
+        editingCell.field === 'inspection_date' ||
+        editingCell.field === 'due_date' ||
+        editingCell.field === 'inspection_time'
+      ) {
+        try {
+          inlineInputRef.current.showPicker();
+        } catch (err) {
+          console.warn('showPicker not supported or failed', err);
+        }
+      } else {
+        inlineInputRef.current.select();
+      }
     }
   }, [editingCell]);
 
@@ -1421,9 +1094,14 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-          
-          <button 
-            onClick={() => setIsQrModalOpen(true)}
+        </div>
+
+        {/* Map View & Add Appraisal Buttons */}
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            onClick={() => {
+              window.open('/api/backup', '_blank');
+            }}
             className="btn btn-secondary"
             style={{ 
               padding: '0.35rem 0.75rem', 
@@ -1433,34 +1111,57 @@ export default function Dashboard() {
               gap: '0.35rem', 
               borderRadius: '6px' 
             }}
-            id="btnMobileLink"
+            title="Download database backup for Google Drive sync"
           >
-            <Smartphone className="w-4 h-4 tailscale-logo" />
-            Mobile Link
+            <Clock className="w-4 h-4" />
+            Backup Data
+          </button>
+
+          <button
+            onClick={() => {
+              if (filteredAppraisals.length > 0) {
+                setIsMapModalOpen(true);
+              } else {
+                alert('No properties to map in current view.');
+              }
+            }}
+            className="btn btn-secondary"
+            style={{ 
+              padding: '0.35rem 0.75rem', 
+              fontSize: '0.75rem', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.35rem', 
+              borderRadius: '6px' 
+            }}
+            title="Open Google Maps Route for up to 10 filtered properties"
+          >
+            <Map className="w-4 h-4" />
+            Map View
+          </button>
+          
+          <button
+            onClick={() => {
+              resetAddForm();
+              setIsAddModalOpen(true);
+            }}
+            disabled={isHistorical || viewMode === 'completed'}
+            className="btn btn-secondary"
+            style={{ 
+              padding: '0.35rem 0.75rem', 
+              fontSize: '0.75rem', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.35rem', 
+              borderRadius: '6px',
+              opacity: (isHistorical || viewMode === 'completed') ? 0.5 : 1
+            }}
+            id="btnAddAppraisal"
+          >
+            <Plus className="w-4 h-4" />
+            Add Appraisal
           </button>
         </div>
-
-        {/* Relocated Add Appraisal Button */}
-        <button
-          onClick={() => {
-            resetAddForm();
-            setIsAddModalOpen(true);
-          }}
-          disabled={isHistorical}
-          className="btn btn-secondary"
-          style={{ 
-            padding: '0.35rem 0.75rem', 
-            fontSize: '0.75rem', 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '0.35rem', 
-            borderRadius: '6px' 
-          }}
-          id="btnAddAppraisal"
-        >
-          <Plus className="w-4 h-4" />
-          Add Appraisal
-        </button>
       </header>
 
       {/* Main Page Content */}
@@ -1502,6 +1203,26 @@ export default function Dashboard() {
                 <span>Snapshot: {daySliderValue === 0 ? '8:00 AM' : daySliderValue === 1 ? '12:00 PM (Noon)' : '8:00 PM'}</span>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* View Mode Tabs */}
+        {!isHistorical && (
+          <div style={{ display: 'flex', gap: '1rem', padding: '0.5rem 1rem', borderBottom: '1px solid var(--border-color)', marginBottom: '1rem' }}>
+            <button
+              onClick={() => setViewMode('active')}
+              className={`btn ${viewMode === 'active' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem' }}
+            >
+              Active Orders
+            </button>
+            <button
+              onClick={() => setViewMode('completed')}
+              className={`btn ${viewMode === 'completed' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem' }}
+            >
+              Completed Orders
+            </button>
           </div>
         )}
 
@@ -1652,7 +1373,7 @@ export default function Dashboard() {
                 <th style={{ textAlign: 'center' }}>Status</th>
                 <th style={{ textAlign: 'center' }}>Client</th>
                 <th style={{ textAlign: 'right' }}>Fee</th>
-                <th style={{ textAlign: 'right', width: '120px' }}>Actions</th>
+                <th style={{ textAlign: 'right', width: '60px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1696,13 +1417,13 @@ export default function Dashboard() {
                       onTouchEnd={handleTouchEnd}
                       onTouchMove={handleTouchMove}
                     >
-                      {/* Frozen Address column - Double click to Google Maps on desktop */}
+                      {/* Frozen Address column - Double click to search Google on desktop */}
                       <td 
                         className="editable-cell sticky-col"
                         style={{ textAlign: 'left' }}
                         onDoubleClick={(e) => {
                           e.stopPropagation();
-                          window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(app.address)}`, '_blank');
+                          window.open(`https://www.google.com/search?q=${encodeURIComponent(app.address)}`, '_blank');
                         }}
                       >
                         <div>
@@ -1723,23 +1444,28 @@ export default function Dashboard() {
                           setInlineValue(app.type);
                         }}
                       >
-                        {editingCell?.id === app.id && editingCell?.field === 'type' ? (
-                          <input
-                            ref={inlineInputRef}
-                            type="text"
-                            value={inlineValue}
-                            onChange={(e) => setInlineValue(e.target.value)}
-                            onBlur={() => handleInlineSave(app.id, 'type')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleInlineSave(app.id, 'type');
-                              if (e.key === 'Escape') setEditingCell(null);
-                            }}
-                            className="inline-input"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          app.type
-                        )}
+                        <div className="editable-cell-wrapper">
+                          <span className={`editable-cell-text ${editingCell?.id === app.id && editingCell?.field === 'type' ? 'hidden-text' : ''}`}>
+                            {app.type}
+                          </span>
+                          {editingCell?.id === app.id && editingCell?.field === 'type' && (
+                            <div className="editable-cell-input-container">
+                              <input
+                                ref={inlineInputRef}
+                                type="text"
+                                value={inlineValue}
+                                onChange={(e) => setInlineValue(e.target.value)}
+                                onBlur={() => handleInlineSave(app.id, 'type')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleInlineSave(app.id, 'type');
+                                  if (e.key === 'Escape') setEditingCell(null);
+                                }}
+                                className="inline-input"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </div>
+                          )}
+                        </div>
                       </td>
 
                       {/* Inspection Date column */}
@@ -1752,30 +1478,35 @@ export default function Dashboard() {
                           setInlineValue(app.inspection_date);
                         }}
                       >
-                        {editingCell?.id === app.id && editingCell?.field === 'inspection_date' ? (
-                          <input
-                            ref={inlineInputRef}
-                            type="date"
-                            value={inlineValue}
-                            onChange={(e) => setInlineValue(e.target.value)}
-                            onBlur={() => handleInlineSave(app.id, 'inspection_date')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleInlineSave(app.id, 'inspection_date');
-                              if (e.key === 'Escape') setEditingCell(null);
-                            }}
-                            className="inline-input"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          app.inspection_date ? (
-                            <div className="date-cell-wrapper-stacked" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
-                              <span className="date-weekday">{inspDateLabel.weekday}</span>
-                              {inspDateLabel.dateVal && <span className="date-sub">{inspDateLabel.dateVal}</span>}
+                        <div className="editable-cell-wrapper">
+                          <div className={`editable-cell-text ${editingCell?.id === app.id && editingCell?.field === 'inspection_date' ? 'hidden-text' : ''}`}>
+                            {app.inspection_date ? (
+                              <div className="date-cell-wrapper-stacked" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
+                                <span className="date-weekday">{inspDateLabel.weekday}</span>
+                                {inspDateLabel.dateVal && <span className="date-sub">{inspDateLabel.dateVal}</span>}
+                              </div>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>xx</span>
+                            )}
+                          </div>
+                          {editingCell?.id === app.id && editingCell?.field === 'inspection_date' && (
+                            <div className="editable-cell-input-container">
+                              <input
+                                ref={inlineInputRef}
+                                type="date"
+                                value={inlineValue}
+                                onChange={(e) => setInlineValue(e.target.value)}
+                                onBlur={() => handleInlineSave(app.id, 'inspection_date')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleInlineSave(app.id, 'inspection_date');
+                                  if (e.key === 'Escape') setEditingCell(null);
+                                }}
+                                className="inline-input"
+                                onClick={(e) => e.stopPropagation()}
+                              />
                             </div>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)' }}>xx</span>
-                          )
-                        )}
+                          )}
+                        </div>
                       </td>
 
                       {/* Inspection Time column */}
@@ -1788,29 +1519,34 @@ export default function Dashboard() {
                           setInlineValue(app.inspection_time);
                         }}
                       >
-                        {editingCell?.id === app.id && editingCell?.field === 'inspection_time' ? (
-                          <input
-                            ref={inlineInputRef}
-                            type="time"
-                            value={convertTo24Hour(inlineValue)}
-                            onChange={(e) => setInlineValue(convertTo12Hour(e.target.value))}
-                            onBlur={() => handleInlineSave(app.id, 'inspection_time')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleInlineSave(app.id, 'inspection_time');
-                              if (e.key === 'Escape') setEditingCell(null);
-                            }}
-                            className="inline-input"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          app.inspection_time ? (
-                            <div className="date-cell-wrapper" style={{ fontWeight: 400, justifyContent: 'center' }}>
-                              <span>{app.inspection_time}</span>
+                        <div className="editable-cell-wrapper">
+                          <div className={`editable-cell-text ${editingCell?.id === app.id && editingCell?.field === 'inspection_time' ? 'hidden-text' : ''}`}>
+                            {app.inspection_time ? (
+                              <div className="date-cell-wrapper" style={{ fontWeight: 400, justifyContent: 'center' }}>
+                                <span>{app.inspection_time}</span>
+                              </div>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>xx</span>
+                            )}
+                          </div>
+                          {editingCell?.id === app.id && editingCell?.field === 'inspection_time' && (
+                            <div className="editable-cell-input-container">
+                              <input
+                                ref={inlineInputRef}
+                                type="time"
+                                value={convertTo24Hour(inlineValue)}
+                                onChange={(e) => setInlineValue(convertTo12Hour(e.target.value))}
+                                onBlur={() => handleInlineSave(app.id, 'inspection_time')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleInlineSave(app.id, 'inspection_time');
+                                  if (e.key === 'Escape') setEditingCell(null);
+                                }}
+                                className="inline-input"
+                                onClick={(e) => e.stopPropagation()}
+                              />
                             </div>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)' }}>xx</span>
-                          )
-                        )}
+                          )}
+                        </div>
                       </td>
 
                       {/* Due Date column */}
@@ -1823,40 +1559,37 @@ export default function Dashboard() {
                           setInlineValue(app.due_date);
                         }}
                       >
-                        {editingCell?.id === app.id && editingCell?.field === 'due_date' ? (
-                          <input
-                            ref={inlineInputRef}
-                            type="date"
-                            value={inlineValue}
-                            onChange={(e) => setInlineValue(e.target.value)}
-                            onBlur={() => handleInlineSave(app.id, 'due_date')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleInlineSave(app.id, 'due_date');
-                              if (e.key === 'Escape') setEditingCell(null);
-                            }}
-                            className="inline-input"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          app.due_date ? (
-                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.15rem' }}>
+                        <div className="editable-cell-wrapper">
+                          <div className={`editable-cell-text ${editingCell?.id === app.id && editingCell?.field === 'due_date' ? 'hidden-text' : ''}`}>
+                            {app.due_date ? (
                               <div className="date-cell-wrapper-stacked" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
                                 <span className="date-weekday">{dueDateLabel.weekday}</span>
                                 {dueDateLabel.dateVal && <span className="date-sub">{dueDateLabel.dateVal}</span>}
                               </div>
-                              {dueBadge && (
-                                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                  <span className={`date-badge ${dueBadge.className}`}>{dueBadge.text}</span>
-                                </div>
-                              )}
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>xx</span>
+                            )}
+                          </div>
+                          {editingCell?.id === app.id && editingCell?.field === 'due_date' && (
+                            <div className="editable-cell-input-container">
+                              <input
+                                ref={inlineInputRef}
+                                type="date"
+                                value={inlineValue}
+                                onChange={(e) => setInlineValue(e.target.value)}
+                                onBlur={() => handleInlineSave(app.id, 'due_date')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleInlineSave(app.id, 'due_date');
+                                  if (e.key === 'Escape') setEditingCell(null);
+                                }}
+                                className="inline-input"
+                                onClick={(e) => e.stopPropagation()}
+                              />
                             </div>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)' }}>xx</span>
-                          )
-                        )}
+                          )}
+                        </div>
                       </td>
 
-                      {/* Status/Stats Badge column */}
                       <td 
                         className="editable-cell"
                         style={{ textAlign: 'center' }}
@@ -1866,29 +1599,53 @@ export default function Dashboard() {
                           setInlineValue(app.stats);
                         }}
                       >
-                        {editingCell?.id === app.id && editingCell?.field === 'stats' ? (
-                          <input
-                            ref={inlineInputRef}
-                            type="text"
-                            value={inlineValue}
-                            onChange={(e) => setInlineValue(e.target.value)}
-                            onBlur={() => handleInlineSave(app.id, 'stats')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleInlineSave(app.id, 'stats');
-                              if (e.key === 'Escape') setEditingCell(null);
-                            }}
-                            className="inline-input"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          app.stats ? (
-                            <span className={`status-badge ${app.stats.toLowerCase()}`}>
-                              {app.stats}
-                            </span>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)' }}>-</span>
-                          )
-                        )}
+                        <div className="editable-cell-wrapper">
+                          <div className={`editable-cell-text ${editingCell?.id === app.id && editingCell?.field === 'stats' ? 'hidden-text' : ''}`}>
+                            {(app.stats || dueBadge || app.status === 'COMPLETED' || app.status === 'CANCELLED') ? (
+                              <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
+                                {app.status === 'COMPLETED' && (
+                                  <span className="status-badge" style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.3)' }}>
+                                    COMPLETED
+                                  </span>
+                                )}
+                                {app.status === 'CANCELLED' && (
+                                  <span className="status-badge" style={{ backgroundColor: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+                                    CANCELLED
+                                  </span>
+                                )}
+                                {app.stats && (
+                                  <span className={`status-badge ${app.stats.toLowerCase()}`}>
+                                    {app.stats}
+                                  </span>
+                                )}
+                                {dueBadge && app.status !== 'COMPLETED' && app.status !== 'CANCELLED' && (
+                                  <span className={`date-badge ${dueBadge.className}`}>
+                                    {dueBadge.text}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>-</span>
+                            )}
+                          </div>
+                          {editingCell?.id === app.id && editingCell?.field === 'stats' && (
+                            <div className="editable-cell-input-container">
+                              <input
+                                ref={inlineInputRef}
+                                type="text"
+                                value={inlineValue}
+                                onChange={(e) => setInlineValue(e.target.value)}
+                                onBlur={() => handleInlineSave(app.id, 'stats')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleInlineSave(app.id, 'stats');
+                                  if (e.key === 'Escape') setEditingCell(null);
+                                }}
+                                className="inline-input"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </div>
+                          )}
+                        </div>
                       </td>
 
                       {/* Client column */}
@@ -1901,23 +1658,28 @@ export default function Dashboard() {
                           setInlineValue(app.client);
                         }}
                       >
-                        {editingCell?.id === app.id && editingCell?.field === 'client' ? (
-                          <input
-                            ref={inlineInputRef}
-                            type="text"
-                            value={inlineValue}
-                            onChange={(e) => setInlineValue(e.target.value)}
-                            onBlur={() => handleInlineSave(app.id, 'client')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleInlineSave(app.id, 'client');
-                              if (e.key === 'Escape') setEditingCell(null);
-                            }}
-                            className="inline-input"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          app.client
-                        )}
+                        <div className="editable-cell-wrapper">
+                          <span className={`editable-cell-text ${editingCell?.id === app.id && editingCell?.field === 'client' ? 'hidden-text' : ''}`}>
+                            {app.client}
+                          </span>
+                          {editingCell?.id === app.id && editingCell?.field === 'client' && (
+                            <div className="editable-cell-input-container">
+                              <input
+                                ref={inlineInputRef}
+                                type="text"
+                                value={inlineValue}
+                                onChange={(e) => setInlineValue(e.target.value)}
+                                onBlur={() => handleInlineSave(app.id, 'client')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleInlineSave(app.id, 'client');
+                                  if (e.key === 'Escape') setEditingCell(null);
+                                }}
+                                className="inline-input"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </div>
+                          )}
+                        </div>
                       </td>
 
                       {/* Fee column */}
@@ -1930,29 +1692,34 @@ export default function Dashboard() {
                           setInlineValue(String(app.fee));
                         }}
                       >
-                        {editingCell?.id === app.id && editingCell?.field === 'fee' ? (
-                          <input
-                            ref={inlineInputRef}
-                            type="number"
-                            value={inlineValue}
-                            onChange={(e) => setInlineValue(e.target.value)}
-                            onBlur={() => handleInlineSave(app.id, 'fee')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleInlineSave(app.id, 'fee');
-                              if (e.key === 'Escape') setEditingCell(null);
-                            }}
-                            className="inline-input inline-input-fee"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          `$${app.fee}`
-                        )}
+                        <div className="editable-cell-wrapper">
+                          <span className={`editable-cell-text ${editingCell?.id === app.id && editingCell?.field === 'fee' ? 'hidden-text' : ''}`}>
+                            {`$${app.fee}`}
+                          </span>
+                          {editingCell?.id === app.id && editingCell?.field === 'fee' && (
+                            <div className="editable-cell-input-container">
+                              <input
+                                ref={inlineInputRef}
+                                type="number"
+                                value={inlineValue}
+                                onChange={(e) => setInlineValue(e.target.value)}
+                                onBlur={() => handleInlineSave(app.id, 'fee')}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleInlineSave(app.id, 'fee');
+                                  if (e.key === 'Escape') setEditingCell(null);
+                                }}
+                                className="inline-input inline-input-fee"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </div>
+                          )}
+                        </div>
                       </td>
 
                       {/* Actions column */}
                       <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                         <div className="row-actions">
-                          {/* Mark Inspected Square Button */}
+                          {/* Mark Inspected Button */}
                           <button
                             onClick={() => handleMarkInspected(app)}
                             disabled={isHistorical || app.stats.toLowerCase().includes('unscheduled')}
@@ -1960,31 +1727,34 @@ export default function Dashboard() {
                             className="action-icon-btn check-inspected"
                             style={{ opacity: app.stats.toLowerCase().includes('unscheduled') ? 0.3 : 1 }}
                           >
-                            <CheckSquare className="w-4 h-4" />
+                            <CheckSquare className="w-3 h-3" />
                           </button>
+                          {/* Mark Completed Button */}
+                          <button
+                            onClick={() => handleMarkCompleted(app)}
+                            disabled={isHistorical}
+                            title="Mark Completed / Finished"
+                            className="action-icon-btn complete"
+                          >
+                            <CheckCircle className="w-3 h-3" />
+                          </button>
+                          {/* Copy / Clone Button */}
                           <button
                             onClick={() => openCloneModal(app)}
                             disabled={isHistorical}
                             title="Copy / Clone similar appraisal"
                             className="action-icon-btn"
                           >
-                            <Copy className="w-4 h-4" />
+                            <Copy className="w-3 h-3" />
                           </button>
+                          {/* Edit Button */}
                           <button
                             onClick={() => openEditModal(app)}
                             disabled={isHistorical}
                             title="Edit full appraisal details"
                             className="action-icon-btn"
                           >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteAppraisal(app.id)}
-                            disabled={isHistorical}
-                            title="Delete appointment"
-                            className="action-icon-btn delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
+                            <Edit3 className="w-3 h-3" />
                           </button>
                         </div>
                       </td>
@@ -2063,13 +1833,10 @@ export default function Dashboard() {
               
               <div className="stats-item-box ytd">
                 <div className="ytd-content">
-                  <span className="stats-item-label">YTD Volume (Running)</span>
+                  <span className="stats-item-label">Yearly estimate</span>
                   <div className="ytd-projection-details">
-                    <span className="stats-item-val" id="kpiYtdVolumeSidebar">
-                      ${ytdFeeSum.toLocaleString('en-US')}
-                    </span>
-                    <span className="ytd-projected-val" id="kpiYtdProjectedSidebar">
-                      Proj: ${projectedFeeSum.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                    <span className="stats-item-val" id="kpiYtdProjectedSidebar">
+                      ${projectedFeeSum.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                     </span>
                   </div>
                 </div>
@@ -2107,77 +1874,6 @@ export default function Dashboard() {
           </div>
         </section>
       </main>
-
-      {/* MODAL: MOBILE QR CODE LINK */}
-      {isQrModalOpen && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '350px' }}>
-            <div className="modal-header">
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <Smartphone className="w-5 h-5 tailscale-logo" />
-                Mobile Connection Link
-              </h2>
-              <button onClick={() => setIsQrModalOpen(false)} className="modal-close-btn">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            
-            <div className="tailscale-body" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', padding: '0.25rem 0' }}>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                To view this tracker on your phone while in the field:
-              </p>
-              <ol style={{ paddingLeft: '1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                <li>Ensure both this PC and your phone are connected to your <strong>Tailscale VPN</strong> network.</li>
-                <li>Scan the QR code below using your phone&apos;s camera, or visit the link.</li>
-              </ol>
-
-              {systemIps.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.65rem' }}>Select Connection IP</label>
-                    <select 
-                      value={activeIp} 
-                      onChange={(e) => setActiveIp(e.target.value)}
-                      className="form-input"
-                      style={{ fontSize: '0.8rem', padding: '0.4rem' }}
-                    >
-                      {systemIps.map(ip => (
-                        <option key={ip.address} value={ip.address}>
-                          {ip.address} ({ip.name}) {ip.isTailscale ? '★ Tailscale' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="tailscale-ip-list">
-                    <div className="tailscale-ip-item">
-                      <span className="tailscale-ip-label">Browser Link</span>
-                      <span className="tailscale-ip-val">{`http://${activeIp}:3000`}</span>
-                    </div>
-                  </div>
-
-                  {qrCodeDataUrl && (
-                    <div className="tailscale-qr-wrapper">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={qrCodeDataUrl} alt="Mobile link QR code" style={{ width: '100%', height: '100%' }} />
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p style={{ color: 'var(--danger)', fontSize: '0.75rem' }}>
-                  No local network interfaces detected. Make sure Tailscale is connected.
-                </p>
-              )}
-            </div>
-
-            <div className="modal-actions" style={{ borderTop: 'none', paddingTop: 0 }}>
-              <button onClick={() => setIsQrModalOpen(false)} className="btn btn-secondary" style={{ width: '100%', padding: '0.45rem' }}>
-                Close Panel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* MODAL: ADD APPRAISAL */}
       {isAddModalOpen && (
@@ -2507,6 +2203,13 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Map View Overlay */}
+      <MapOverlay 
+        isOpen={isMapModalOpen} 
+        onClose={() => setIsMapModalOpen(false)} 
+        appraisals={filteredAppraisals} 
+      />
     </>
   );
 }

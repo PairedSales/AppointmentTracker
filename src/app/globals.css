@@ -51,6 +51,17 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+input, textarea, [contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
 }
 
 /* Custom Scrollbar styling */
@@ -152,8 +163,16 @@ body {
   gap: 1rem;
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  padding: 0.75rem 1rem;
+  padding: 0 1rem;
   border-radius: 10px;
+  height: 58px;
+}
+
+@media (max-width: 768px) {
+  .toolbar {
+    height: auto;
+    padding: 0.75rem 1rem;
+  }
 }
 
 .search-input-wrapper {
@@ -339,6 +358,10 @@ body {
   background-color: var(--bg-secondary);
   cursor: pointer;
   position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
 }
 
 /* Shading backings styled for modern dark mode */
@@ -425,21 +448,23 @@ body {
 .row-cat-purple td.sticky-col { background-color: #161222; }
 .row-cat-gold td.sticky-col { background-color: #1e1a11; }
 
-/* Selected Row styling (Retool / Notion excel outline ring) */
+/* Selected Row styling (Retool / Notion excel outline ring - overlay outline via box-shadow to prevent grid jitter) */
 .appraisal-row.selected-row {
   outline: none;
   z-index: 9;
 }
 .appraisal-row.selected-row td {
   filter: brightness(1.2);
-  border-top: 2px solid var(--text-primary) !important;
-  border-bottom: 2px solid var(--text-primary) !important;
+  box-shadow: inset 0 2px 0 var(--text-primary), inset 0 -2px 0 var(--text-primary);
 }
 .appraisal-row.selected-row td:first-child {
-  border-left: 2px solid var(--text-primary) !important;
+  box-shadow: inset 2px 0 0 var(--text-primary), inset 0 2px 0 var(--text-primary), inset 0 -2px 0 var(--text-primary);
+}
+.appraisal-row.selected-row td.sticky-col {
+  box-shadow: inset 2px 0 0 var(--text-primary), inset 0 2px 0 var(--text-primary), inset 0 -2px 0 var(--text-primary), 2px 0 5px rgba(0, 0, 0, 0.2);
 }
 .appraisal-row.selected-row td:last-child {
-  border-right: 2px solid var(--text-primary) !important;
+  box-shadow: inset -2px 0 0 var(--text-primary), inset 0 2px 0 var(--text-primary), inset 0 -2px 0 var(--text-primary);
 }
 
 /* Expanded Detail Row */
@@ -577,6 +602,49 @@ body {
   font-family: var(--font-mono);
 }
 
+/* Editable Cell overlay wrapper to prevent grid resizing on edit */
+.editable-cell {
+  position: relative;
+}
+
+.editable-cell-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 24px;
+}
+
+.editable-cell.fee-cell .editable-cell-wrapper {
+  justify-content: flex-end;
+}
+
+.editable-cell-text {
+  width: 100%;
+  text-align: inherit;
+  display: inline-flex;
+  align-items: center;
+  justify-content: inherit;
+}
+
+.editable-cell-text.hidden-text {
+  visibility: hidden !important;
+  pointer-events: none;
+}
+
+.editable-cell-input-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: inherit;
+}
+
 .inline-input {
   background: transparent !important;
   border: none !important;
@@ -591,11 +659,26 @@ body {
   height: 100% !important;
   box-shadow: none !important;
   text-align: inherit;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
 }
 
 .inline-input-fee {
   font-family: var(--font-mono);
   font-weight: 600;
+}
+
+/* Remove default browser spinner buttons from number inputs (like Fee fields) */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 /* Addresses display design */
@@ -701,11 +784,18 @@ body {
   border-color: rgba(16, 185, 129, 0.2);
 }
 
-/* Actions Menu icon button */
+/* Actions Menu icon button - stacked 2x2 layout with smooth hover expansion */
 .row-actions {
-  display: flex;
-  gap: 0.25rem;
-  justify-content: flex-end;
+  display: inline-grid;
+  grid-template-columns: repeat(2, auto);
+  gap: 2px;
+  justify-content: end;
+  align-items: center;
+  transition: gap 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.row-actions:hover {
+  gap: 5px;
 }
 
 .action-icon-btn {
@@ -713,21 +803,44 @@ body {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 0.3rem;
-  border-radius: 4px;
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
   display: inline-flex;
   align-items: center;
-  transition: all 0.15s;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.action-icon-btn svg {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Expand button sizes when hovering the actions area */
+.row-actions:hover .action-icon-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
 }
 
 .action-icon-btn:hover {
-  background-color: rgba(255, 255, 255, 0.06);
+  background-color: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
+}
+
+.action-icon-btn:hover svg {
+  transform: scale(1.15);
 }
 
 .action-icon-btn.delete:hover {
   background-color: rgba(239, 68, 68, 0.12);
   color: var(--danger);
+}
+
+.action-icon-btn.complete:hover {
+  background-color: rgba(16, 185, 129, 0.12);
+  color: var(--success);
 }
 
 /* Layout section: Middle metrics & Notes */
@@ -1415,4 +1528,23 @@ body {
   font-size: 0.72rem;
   color: var(--text-secondary);
   font-family: var(--font-mono);
+}
+
+/* Readonly Mode */
+body.readonly-mode button,
+body.readonly-mode input,
+body.readonly-mode select,
+body.readonly-mode textarea,
+body.readonly-mode [role='button'],
+body.readonly-mode .lucide-pencil,
+body.readonly-mode .lucide-trash,
+body.readonly-mode .lucide-plus,
+body.readonly-mode .action-icon-btn,
+body.readonly-mode .editable-cell-input-container {
+  pointer-events: none !important;
+  opacity: 0.6 !important;
+}
+
+body.readonly-mode .notes-textarea-plain {
+  user-select: none;
 }
