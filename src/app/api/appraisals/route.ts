@@ -247,8 +247,9 @@ export async function PUT(request: Request) {
     }
 
     // Determine event type
-    let eventType: 'ORDER_UPDATED' | 'ORDER_COMPLETED' | 'ORDER_CANCELLED' = 'ORDER_UPDATED';
+    let eventType: 'ORDER_UPDATED' | 'ORDER_COMPLETED' | 'ORDER_CANCELLED' | 'ORDER_INSPECTED' = 'ORDER_UPDATED';
     if (newStatus === 'COMPLETED' && current.status !== 'COMPLETED') eventType = 'ORDER_COMPLETED';
+    else if (newStatus === 'INSPECTED' && current.status !== 'INSPECTED') eventType = 'ORDER_INSPECTED';
     
     // Update history logs
     await logHistory(db, id, 'UPDATE');

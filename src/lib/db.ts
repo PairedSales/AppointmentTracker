@@ -328,7 +328,7 @@ export async function logHistory(
 export async function logEvent(
   db: Database,
   appraisalId: string,
-  eventType: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'ORDER_COMPLETED' | 'ORDER_CANCELLED',
+  eventType: 'ORDER_CREATED' | 'ORDER_UPDATED' | 'ORDER_COMPLETED' | 'ORDER_CANCELLED' | 'ORDER_INSPECTED',
   changedFields: string[] | null = null,
   previousValues: any = null,
   newValues: any = null

@@ -81,9 +81,10 @@ export default function Dashboard() {
   const [travelDate, setTravelDate] = useState('');
   const [daySliderValue, setDaySliderValue] = useState(0);
   const [isTimeTravelOpen, setIsTimeTravelOpen] = useState(false);
+  const [dailyMetrics, setDailyMetrics] = useState<any>(null);
 
   // View Mode
-  const [viewMode, setViewMode] = useState<'active' | 'completed'>('active');
+  const [viewMode, setViewMode] = useState<'active' | 'completed' | 'time-machine'>('active');
 
 
 
@@ -160,7 +161,7 @@ export default function Dashboard() {
   const projectedFeeSum = activeFeeSum * weeksInYear;
 
   // Core functions and handlers (defined above useEffect hooks)
-  const fetchAppraisals = async (timestamp?: string, forceMode?: 'active' | 'completed') => {
+  const fetchAppraisals = async (timestamp?: string, forceMode?: 'active' | 'completed' | 'time-machine') => {
     setIsLoading(true);
     const mode = forceMode || viewMode;
     try {
@@ -169,6 +170,13 @@ export default function Dashboard() {
          url = `/api/appraisals?timestamp=${encodeURIComponent(timestamp)}`;
       } else if (mode === 'completed') {
          url = '/api/appraisals?status=COMPLETED,CANCELLED';
+      } else if (mode === 'time-machine') {
+         // Prevent fetching all if no timestamp provided in time-machine mode
+         if (!timestamp) {
+           setAppraisals([]);
+           setIsLoading(false);
+           return;
+         }
       }
       const res = await fetch(url);
       const data = await res.json();
@@ -802,12 +810,29 @@ export default function Dashboard() {
     if (!date) return;
     setTravelDate(date);
     setIsTimeTravelOpen(false);
-    setIsHistorical(true);
 
-    // Default to Noon (value 1)
-    setDaySliderValue(1);
-    const targetTimestamp = getSnapshotTimestamp(date, 1);
-    fetchAppraisals(targetTimestamp);
+    if (viewMode === 'time-machine') {
+      const targetTimestamp = getSnapshotTimestamp(date, 3); // 3 = End of day
+      fetchAppraisals(targetTimestamp, 'time-machine');
+      fetchMetrics(date);
+    } else {
+      setIsHistorical(true);
+      setDaySliderValue(1);
+      const targetTimestamp = getSnapshotTimestamp(date, 1);
+      fetchAppraisals(targetTimestamp);
+    }
+  };
+
+  const fetchMetrics = async (date: string) => {
+    try {
+      const res = await fetch(`/api/appraisals/metrics?date=${date}`);
+      if (res.ok) {
+        const data = await res.json();
+        setDailyMetrics(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch metrics', err);
+    }
   };
 
   const handleDaySliderChange = (val: number) => {
@@ -1145,7 +1170,7 @@ export default function Dashboard() {
               resetAddForm();
               setIsAddModalOpen(true);
             }}
-            disabled={isHistorical || viewMode === 'completed'}
+            disabled={isHistorical || viewMode === 'completed' || viewMode === 'time-machine'}
             className="btn btn-secondary"
             style={{ 
               padding: '0.35rem 0.75rem', 
@@ -1154,7 +1179,7 @@ export default function Dashboard() {
               alignItems: 'center', 
               gap: '0.35rem', 
               borderRadius: '6px',
-              opacity: (isHistorical || viewMode === 'completed') ? 0.5 : 1
+              opacity: (isHistorical || viewMode === 'completed' || viewMode === 'time-machine') ? 0.5 : 1
             }}
             id="btnAddAppraisal"
           >
@@ -1210,19 +1235,70 @@ export default function Dashboard() {
         {!isHistorical && (
           <div style={{ display: 'flex', gap: '1rem', padding: '0.5rem 1rem', borderBottom: '1px solid var(--border-color)', marginBottom: '1rem' }}>
             <button
-              onClick={() => setViewMode('active')}
+              onClick={() => { setViewMode('active'); setTravelDate(''); setDailyMetrics(null); }}
               className={`btn ${viewMode === 'active' ? 'btn-primary' : 'btn-secondary'}`}
               style={{ padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem' }}
             >
               Active Orders
             </button>
             <button
-              onClick={() => setViewMode('completed')}
+              onClick={() => { setViewMode('completed'); setTravelDate(''); setDailyMetrics(null); }}
               className={`btn ${viewMode === 'completed' ? 'btn-primary' : 'btn-secondary'}`}
               style={{ padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem' }}
             >
               Completed Orders
             </button>
+            <button
+              onClick={() => { setViewMode('time-machine'); setTravelDate(''); setDailyMetrics(null); }}
+              className={`btn ${viewMode === 'time-machine' ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ padding: '0.5rem 1rem', borderRadius: '6px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+            >
+              <Clock className="w-4 h-4" /> Time Machine
+            </button>
+          </div>
+        )}
+
+        {/* Time Machine Daily Metrics */}
+        {viewMode === 'time-machine' && (
+          <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '2rem' }}>
+              <div style={{ minWidth: '280px' }}>
+                <h3 style={{ marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>Select Historical Date</h3>
+                <CalendarPicker 
+                  selectedDate={travelDate} 
+                  onSelectDate={handleSelectTravelDate} 
+                />
+              </div>
+              {travelDate && dailyMetrics && (
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', flexGrow: 1 }}>
+                  <div style={{ flex: 1, backgroundColor: 'var(--bg-secondary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                    <h4 style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Created ({dailyMetrics.created.length})</h4>
+                    <ul style={{ margin: 0, padding: 0, listStyle: 'none', fontSize: '0.85rem' }}>
+                      {dailyMetrics.created.map((e: any) => <li key={e.event_id} style={{ marginBottom: '0.2rem' }}>{e.address}</li>)}
+                    </ul>
+                  </div>
+                  <div style={{ flex: 1, backgroundColor: 'var(--bg-secondary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                    <h4 style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Inspected ({dailyMetrics.inspected.length})</h4>
+                    <ul style={{ margin: 0, padding: 0, listStyle: 'none', fontSize: '0.85rem' }}>
+                      {dailyMetrics.inspected.map((e: any) => <li key={e.event_id} style={{ marginBottom: '0.2rem' }}>{e.address}</li>)}
+                    </ul>
+                  </div>
+                  <div style={{ flex: 1, backgroundColor: 'var(--bg-secondary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                    <h4 style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '0.5rem' }}>Completed ({dailyMetrics.completed.length})</h4>
+                    <ul style={{ margin: 0, padding: 0, listStyle: 'none', fontSize: '0.85rem' }}>
+                      {dailyMetrics.completed.map((e: any) => <li key={e.event_id} style={{ marginBottom: '0.2rem' }}>{e.address}</li>)}
+                    </ul>
+                  </div>
+                </div>
+              )}
+            </div>
+            {travelDate && (
+              <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(245,158,11,0.15)', paddingTop: '1rem' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  Showing end-of-day snapshot grid for <strong>{travelDate}</strong>
+                </span>
+              </div>
+            )}
           </div>
         )}
 

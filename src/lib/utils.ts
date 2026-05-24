@@ -119,7 +119,7 @@ export const removeUnscheduled = (stats: string) => {
 
 // Calculate fixed snapshot UTC ISO timestamp
 export const getSnapshotTimestamp = (dateStr: string, step: number) => {
-  const timeStr = step === 0 ? '08:00:00' : step === 1 ? '12:00:00' : '20:00:00';
+  const timeStr = step === 0 ? '08:00:00' : step === 1 ? '12:00:00' : step === 2 ? '20:00:00' : '23:59:59';
   const localDate = new Date(`${dateStr}T${timeStr}`);
   if (isNaN(localDate.getTime())) {
     return `${dateStr}T${timeStr}Z`;
