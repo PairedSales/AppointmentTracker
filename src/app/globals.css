@@ -159,7 +159,7 @@ body {
 .search-input-wrapper {
   position: relative;
   width: 100%;
-  max-width: 320px;
+  max-width: 180px;
 }
 
 .search-input {
@@ -295,6 +295,7 @@ body {
   border-collapse: separate; /* Required for sticky table cells */
   border-spacing: 0;
   text-align: left;
+  table-layout: fixed;
 }
 
 /* Sticky Header Cells */
@@ -432,6 +433,7 @@ body {
   z-index: 9;
 }
 .appraisal-row.selected-row td {
+  background-color: #1a2333 !important; /* Selected row color for all cells including sticky-col */
   filter: brightness(1.2);
 }
 
@@ -570,26 +572,9 @@ body {
   font-family: var(--font-mono);
 }
 
-/* Double click indicator for cells */
+/* Double click indicator for cells - disabled edit icon */
 .editable-cell {
   position: relative;
-}
-
-.editable-cell::after {
-  content: '✎';
-  position: absolute;
-  right: 0.4rem;
-  top: 50%;
-  transform: translateY(-50%);
-  opacity: 0;
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  transition: opacity 0.15s ease;
-  pointer-events: none;
-}
-
-.editable-cell:hover::after {
-  opacity: 1;
 }
 
 .inline-input {
@@ -597,11 +582,13 @@ body {
   border: 1px solid var(--primary-accent);
   color: var(--text-primary);
   font-size: 0.82rem;
-  padding: 0.2rem 0.4rem;
+  padding: 0.15rem 0.35rem;
   border-radius: 4px;
   width: 100%;
+  height: 28px;
   outline: none;
   font-family: inherit;
+  box-sizing: border-box;
   box-shadow: 0 0 0 2px var(--primary-accent-glow);
 }
 
@@ -725,7 +712,7 @@ body {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 0.3rem;
+  padding: 0.2rem;
   border-radius: 4px;
   display: inline-flex;
   align-items: center;
@@ -747,6 +734,7 @@ body {
   display: grid;
   grid-template-columns: 2fr 1fr;
   gap: 1.25rem;
+  align-items: flex-start;
 }
 
 @media (max-width: 900px) {
@@ -1393,4 +1381,32 @@ body {
     padding: 0.5rem;
     gap: 0;
   }
+}
+
+/* 2026 Split Date Cell Displays */
+.date-display-split {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.25;
+  user-select: none;
+}
+.date-weekday {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+}
+.date-sub {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+/* Retool Header Sorting Indicator styles */
+.appraisal-table th[style*="cursor: pointer"]:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+}
+.appraisal-table th.sorted-header {
+  color: var(--primary-accent) !important;
 }

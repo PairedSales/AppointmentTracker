@@ -16,8 +16,6 @@ import {
   Edit3, 
   X,
   Info,
-  Undo2,
-  Redo2,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -48,16 +46,72 @@ interface HistoryAction {
   beforeAppraisals?: Appraisal[];
 }
 
-// Helper date formatter matching "Wednesday 05/20"
-const formatDateLabel = (dateStr: string) => {
-  if (!dateStr || dateStr === 'xx') return 'xx';
+
+
+// Format date to split format: { weekday, date }
+const formatDateLabelSplit = (dateStr: string) => {
+  if (!dateStr || dateStr === 'xx') return null;
   const date = new Date(dateStr + 'T00:00:00');
-  if (isNaN(date.getTime())) return dateStr;
-  return new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
+  if (isNaN(date.getTime())) return { weekday: dateStr, date: '' };
+  
+  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(date);
+  const datePart = new Intl.DateTimeFormat('en-US', { month: '2-digit', day: '2-digit' }).format(date);
+  
+  return { weekday, date: datePart };
+};
+
+// Format address to standard "Street Suffix, City, IL"
+const formatAddress = (val: string): string => {
+  const s = val.trim().replace(/\s+/g, ' ');
+  if (!s) return '';
+  
+  const suffixes = [
+    'st', 'street', 'rd', 'road', 'dr', 'drive', 'wy', 'way', 'ave', 'avenue', 
+    'ln', 'lane', 'blvd', 'boulevard', 'pl', 'place', 'ct', 'court', 'ter', 'terrace', 
+    'cir', 'circle', 'hwy', 'highway', 'pkwy', 'parkway'
+  ];
+  
+  const words = s.split(' ');
+  let suffixIndex = -1;
+  for (let i = 0; i < words.length; i++) {
+    const wordClean = words[i].replace(/[.,]/g, '').toLowerCase();
+    if (suffixes.includes(wordClean)) {
+      suffixIndex = i;
+      break;
+    }
+  }
+  
+  let street = '';
+  let rest = '';
+  
+  if (suffixIndex !== -1) {
+    street = words.slice(0, suffixIndex + 1).join(' ').replace(/,$/, '');
+    rest = words.slice(suffixIndex + 1).join(' ');
+  } else {
+    const commaIdx = s.indexOf(',');
+    if (commaIdx !== -1) {
+      street = s.substring(0, commaIdx).trim();
+      rest = s.substring(commaIdx + 1).trim();
+    } else {
+      if (words.length > 1) {
+        street = words.slice(0, words.length - 1).join(' ');
+        rest = words[words.length - 1];
+      } else {
+        street = s;
+        rest = '';
+      }
+    }
+  }
+  
+  rest = rest.trim().replace(/^,/, '').trim();
+  let city = rest.replace(/(?:,\s*|\s+)(?:IL|Illinois|il|illinois)$/i, '').trim();
+  city = city.replace(/,$/, '').trim();
+  
+  if (!city) {
+    return `${street}, IL`;
+  }
+  
+  return `${street}, ${city}, IL`;
 };
 
 // Format address text to bold main street and muted city/state/zip on second line
@@ -112,6 +166,113 @@ const splitAddress = (addressStr: string) => {
   }
 
   return { primary: addressStr, secondary: '' };
+};
+
+// Convert inspection time string to minutes of day for sorting
+const timeToMinutes = (timeStr: string): number => {
+  if (!timeStr) return 9999;
+  
+  const ampmMatch = timeStr.match(/^\s*(\d+):(\d+)\s*(AM|PM)\s*$/i);
+  if (ampmMatch) {
+    let hour = parseInt(ampmMatch[1]);
+    const min = parseInt(ampmMatch[2]);
+    const ampm = ampmMatch[3].toUpperCase();
+    if (ampm === 'PM' && hour < 12) hour += 12;
+    if (ampm === 'AM' && hour === 12) hour = 0;
+    return hour * 60 + min;
+  }
+  
+  const hhmmMatch = timeStr.match(/^\s*(\d+):(\d+)\s*$/);
+  if (hhmmMatch) {
+    const hour = parseInt(hhmmMatch[1]);
+    const min = parseInt(hhmmMatch[2]);
+    return hour * 60 + min;
+  }
+  
+  return 9999;
+};
+
+// Convert AM/PM time string to 24h format HH:MM for input time element
+const timeTo24h = (timeStr: string): string => {
+  if (!timeStr) return '';
+  
+  const ampmMatch = timeStr.match(/^\s*(\d+):(\d+)\s*(AM|PM)\s*$/i);
+  if (ampmMatch) {
+    let hour = parseInt(ampmMatch[1]);
+    const min = ampmMatch[2].padStart(2, '0');
+    const ampm = ampmMatch[3].toUpperCase();
+    if (ampm === 'PM' && hour < 12) hour += 12;
+    if (ampm === 'AM' && hour === 12) hour = 0;
+    return `${String(hour).padStart(2, '0')}:${min}`;
+  }
+  
+  if (/^\d{2}:\d{2}$/.test(timeStr)) {
+    return timeStr;
+  }
+  
+  const singleHhMatch = timeStr.match(/^\s*(\d):(\d{2})$/);
+  if (singleHhMatch) {
+    return `${singleHhMatch[1].padStart(2, '0')}:${singleHhMatch[2]}`;
+  }
+  
+  return '';
+};
+
+// Format a HH:MM 24h string to 12h AM/PM for cell display
+const formatTimeLabel = (timeStr: string): string => {
+  if (!timeStr) return 'xx';
+  if (/AM|PM/i.test(timeStr)) return timeStr;
+  
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})$/);
+  if (match) {
+    let hour = parseInt(match[1]);
+    const min = match[2];
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12;
+    if (hour === 0) hour = 12;
+    return `${hour}:${min} ${ampm}`;
+  }
+  return timeStr;
+};
+
+// Helper to implement the 2026 row coloring rules
+const adjustAppraisalColorAndStatus = (app: Partial<Appraisal>, isCreation = false): Partial<Appraisal> => {
+  let category = app.color_category || 'black';
+  let stats = app.stats || '';
+  const typeLower = (app.type || '').toLowerCase();
+
+  if (isCreation) {
+    if (typeLower.includes('hybrid')) {
+      category = 'brown';
+    } else if (app.inspection_date && app.inspection_time) {
+      category = 'black';
+    } else {
+      category = 'blue';
+      stats = 'Unscheduled';
+    }
+  } else {
+    // During edits/updates:
+    if (typeLower.includes('hybrid')) {
+      category = 'brown';
+    }
+    // If inspection date and time are entered in a blue highlighted row, then it becomes black
+    else if (category === 'blue' && app.inspection_date && app.inspection_time) {
+      category = 'black';
+    }
+  }
+
+  // Common overrides:
+  if (category === 'blue') {
+    stats = 'Unscheduled';
+  } else if (category === 'black') {
+    stats = stats.replace(/\bunscheduled\b/gi, '').replace(/\s+/g, ' ').trim();
+  }
+
+  return {
+    ...app,
+    color_category: category,
+    stats: stats
+  };
 };
 
 // Relative due date warning badges (overdue only)
@@ -291,6 +452,35 @@ const CalendarPicker = ({ selectedDate, onSelectDate }: CalendarPickerProps) => 
 };
 
 export default function Dashboard() {
+  const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isLongPressRef = useRef(false);
+
+  const handleTouchStart = (address: string) => () => {
+    isLongPressRef.current = false;
+    touchTimerRef.current = setTimeout(() => {
+      isLongPressRef.current = true;
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+      const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+      window.open(mapsUrl, '_blank');
+    }, 600);
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+  };
+
+  const handleTouchMove = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+  };
+
   // Core Data State
   const [appraisals, setAppraisals] = useState<Appraisal[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -311,7 +501,6 @@ export default function Dashboard() {
   const [weeksInYear, setWeeksInYear] = useState<number>(52);
   const [showFontControls, setShowFontControls] = useState(false);
   const [systemIps, setSystemIps] = useState<NetworkIp[]>([]);
-  const [systemHostname, setSystemHostname] = useState('');
   const [activeIp, setActiveIp] = useState<string>('');
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
   
@@ -322,7 +511,6 @@ export default function Dashboard() {
   
   // Time Travel states
   const [travelDate, setTravelDate] = useState('');
-  const [dayChanges, setDayChanges] = useState<any[]>([]);
   const [daySliderValue, setDaySliderValue] = useState(0);
   const [isTimeTravelOpen, setIsTimeTravelOpen] = useState(false);
 
@@ -384,7 +572,9 @@ export default function Dashboard() {
         const dateCompare = a.inspection_date.localeCompare(b.inspection_date);
         if (dateCompare !== 0) return dateCompare;
         
-        return a.inspection_time.localeCompare(b.inspection_time);
+        const timeA = timeToMinutes(a.inspection_time);
+        const timeB = timeToMinutes(b.inspection_time);
+        return timeA - timeB;
       }
       return 0;
     });
@@ -423,7 +613,6 @@ export default function Dashboard() {
         setNotes(data.notes || '');
         setNotesFontSize(data.notes_font_size || 16);
         setWeeksInYear(data.weeks_in_year || 52);
-        setSystemHostname(data.hostname || '');
         if (data.ips) {
           setSystemIps(data.ips);
           const tailscaleIp = data.ips.find((ip: NetworkIp) => ip.isTailscale);
@@ -591,6 +780,12 @@ export default function Dashboard() {
   const handleRowClick = (id: string, e: React.MouseEvent) => {
     if (isHistorical) return;
 
+    // Avoid click handling if this was a Touch long-press redirect
+    if (isLongPressRef.current) {
+      isLongPressRef.current = false;
+      return;
+    }
+
     const currentFilteredIds = filteredAppraisals.map(a => a.id);
     
     if (e.shiftKey) {
@@ -616,7 +811,12 @@ export default function Dashboard() {
         if (e.ctrlKey || e.metaKey) {
           setSelectedRowIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
         } else {
-          setSelectedRowIds([id]);
+          // Normal click on selected row deselects it
+          if (selectedRowIds.includes(id)) {
+            setSelectedRowIds(prev => prev.filter(x => x !== id));
+          } else {
+            setSelectedRowIds([id]);
+          }
         }
         setLastSelectedId(id);
       }
@@ -630,8 +830,54 @@ export default function Dashboard() {
       });
       setLastSelectedId(id);
     } else {
-      setSelectedRowIds([id]);
-      setLastSelectedId(id);
+      // Normal single click on selected row deselects it
+      if (selectedRowIds.includes(id)) {
+        setSelectedRowIds(prev => prev.filter(x => x !== id));
+        if (lastSelectedId === id) {
+          setLastSelectedId(null);
+        }
+      } else {
+        setSelectedRowIds([id]);
+        setLastSelectedId(id);
+      }
+    }
+  };
+
+  const handleRowContextMenu = async (app: Appraisal, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation(); // prevent global window contextmenu deselect
+    
+    if (isHistorical) return;
+    if (app.stats === 'Inspected') return; // Do nothing if already Inspected
+    
+    const beforeAppraisal = { ...app };
+    let afterAppraisal = {
+      ...app,
+      stats: 'Inspected',
+      inspection_date: '',
+      inspection_time: ''
+    } as Appraisal;
+    
+    // Apply auto coloring coding rules (switches black/blue/etc. based on date/time removal)
+    afterAppraisal = adjustAppraisalColorAndStatus(afterAppraisal, false) as Appraisal;
+    
+    try {
+      const res = await fetch('/api/appraisals', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(afterAppraisal)
+      });
+      
+      if (res.ok) {
+        pushAction({
+          type: 'UPDATE',
+          appraisals: [afterAppraisal],
+          beforeAppraisals: [beforeAppraisal]
+        });
+        setAppraisals(prev => prev.map(a => a.id === app.id ? afterAppraisal : a));
+      }
+    } catch (err) {
+      console.error('Failed to update status to Inspected on right click:', err);
     }
   };
 
@@ -643,9 +889,17 @@ export default function Dashboard() {
     
     for (const id of selectedRowIds) {
       const target = appraisals.find(a => a.id === id);
-      if (target && target.color_category !== color) {
-        beforeAppraisals.push({ ...target });
-        afterAppraisals.push({ ...target, color_category: color });
+      if (target) {
+        let updated = { ...target, color_category: color };
+        updated = adjustAppraisalColorAndStatus(updated, false) as Appraisal;
+        
+        if (
+          updated.color_category !== target.color_category || 
+          updated.stats !== target.stats
+        ) {
+          beforeAppraisals.push({ ...target });
+          afterAppraisals.push(updated);
+        }
       }
     }
     
@@ -718,7 +972,7 @@ export default function Dashboard() {
     if (isHistorical) return;
 
     const payload = {
-      address: formAddress,
+      address: formatAddress(formAddress),
       type: formType,
       inspection_date: formInspectionDate,
       inspection_time: formInspectionTime,
@@ -728,6 +982,11 @@ export default function Dashboard() {
       fee: Number(formFee) || 0,
       color_category: formColorCategory,
     };
+
+    // Apply auto color and status constraints for creation
+    const adjusted = adjustAppraisalColorAndStatus(payload, true);
+    payload.color_category = adjusted.color_category!;
+    payload.stats = adjusted.stats!;
 
     try {
       const res = await fetch('/api/appraisals', {
@@ -755,7 +1014,7 @@ export default function Dashboard() {
     const beforeAppraisal = { ...targetAppraisal };
     const payload = {
       id: targetAppraisal.id,
-      address: formAddress,
+      address: formatAddress(formAddress),
       type: formType,
       inspection_date: formInspectionDate,
       inspection_time: formInspectionTime,
@@ -765,6 +1024,11 @@ export default function Dashboard() {
       fee: Number(formFee) || 0,
       color_category: formColorCategory,
     };
+
+    // Apply auto color and status constraints for updates
+    const adjusted = adjustAppraisalColorAndStatus(payload, false);
+    payload.color_category = adjusted.color_category!;
+    payload.stats = adjusted.stats!;
 
     try {
       const res = await fetch('/api/appraisals', {
@@ -790,13 +1054,16 @@ export default function Dashboard() {
     e.preventDefault();
     if (isHistorical || !targetAppraisal) return;
 
+    // Address formatting before calling backend clone API
+    const formatted = formatAddress(cloneAddress);
+
     try {
       const res = await fetch('/api/appraisals/clone', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: targetAppraisal.id,
-          newAddress: cloneAddress,
+          newAddress: formatted,
           newDueDate: cloneDueDate,
         }),
       });
@@ -820,17 +1087,27 @@ export default function Dashboard() {
     const beforeAppraisal = appraisals.find(a => a.id === id);
     if (!beforeAppraisal) return;
 
-    const updatedValue = field === 'fee' ? Number(inlineValue) || 0 : inlineValue;
-    
-    if (beforeAppraisal[field] === updatedValue) {
-      setEditingCell(null);
-      return;
+    let updatedValue = field === 'fee' ? Number(inlineValue) || 0 : inlineValue;
+    if (field === 'address') {
+      updatedValue = formatAddress(inlineValue);
     }
 
-    const afterAppraisal = {
+    let afterAppraisal = {
       ...beforeAppraisal,
       [field]: updatedValue
     } as Appraisal;
+
+    // Apply auto color and status constraints
+    afterAppraisal = adjustAppraisalColorAndStatus(afterAppraisal, false) as Appraisal;
+
+    if (
+      beforeAppraisal[field] === afterAppraisal[field] &&
+      beforeAppraisal.color_category === afterAppraisal.color_category &&
+      beforeAppraisal.stats === afterAppraisal.stats
+    ) {
+      setEditingCell(null);
+      return;
+    }
 
     try {
       const res = await fetch('/api/appraisals', {
@@ -886,46 +1163,39 @@ export default function Dashboard() {
   };
 
   // Calendar Time Travel Handlers
+  const getSnapshotTimestamp = (dateStr: string, hour: number) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const d = new Date(year, month - 1, day, hour, 0, 0);
+    return d.toISOString();
+  };
+
   const handleSelectTravelDate = async (date: string) => {
     if (!date) return;
     setTravelDate(date);
     setIsTimeTravelOpen(false);
     setIsHistorical(true);
 
-    try {
-      // Fetch changes list for this day
-      const res = await fetch(`/api/appraisals?date=${date}`);
-      const data = await res.json();
-      const changesList = data.changes || [];
-      setDayChanges(changesList);
-      
-      // Load latest state of that day by default (end of day)
-      const endOfDayTimestamp = `${date}T23:59:59Z`;
-      setDaySliderValue(changesList.length);
-      fetchAppraisals(endOfDayTimestamp);
-    } catch (err) {
-      console.error('Failed to load day travel data:', err);
-    }
+    // Default to 8:00 PM snapshot (index 2)
+    setDaySliderValue(2);
+    const targetTimestamp = getSnapshotTimestamp(date, 20);
+    fetchAppraisals(targetTimestamp);
   };
 
   const handleDaySliderChange = (val: number) => {
     setDaySliderValue(val);
     if (!travelDate) return;
 
-    let targetTimestamp = '';
-    if (val === 0) {
-      targetTimestamp = `${travelDate}T00:00:00Z`;
-    } else {
-      targetTimestamp = dayChanges[val - 1].valid_from;
-    }
+    let hour = 8;
+    if (val === 1) hour = 12;
+    if (val === 2) hour = 20;
 
+    const targetTimestamp = getSnapshotTimestamp(travelDate, hour);
     fetchAppraisals(targetTimestamp);
   };
 
   const handleExitTimeTravel = () => {
     setIsHistorical(false);
     setTravelDate('');
-    setDayChanges([]);
     setDaySliderValue(0);
     setIsTimeTravelOpen(false);
     fetchAppraisals();
@@ -964,6 +1234,16 @@ export default function Dashboard() {
         activeEl.getAttribute('contenteditable') === 'true'
       );
       
+      if (e.key === 'Escape') {
+        if (editingCell) {
+          setEditingCell(null);
+        } else {
+          setSelectedRowIds([]);
+          setLastSelectedId(null);
+        }
+        return;
+      }
+
       if (isInputActive && activeEl.id !== 'notesTextarea') {
         return;
       }
@@ -1001,7 +1281,40 @@ export default function Dashboard() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undoStack, redoStack, isHistorical, appraisals, searchQuery, colorFilter, sortBy]);
+  }, [undoStack, redoStack, isHistorical, appraisals, searchQuery, colorFilter, sortBy, editingCell]);
+
+  useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.closest('.appraisal-table') ||
+        target.closest('.toolbar') ||
+        target.closest('.modal-content') ||
+        target.closest('.custom-calendar-popover') ||
+        target.closest('#btnTimeTravel') ||
+        target.closest('#btnMobileLink') ||
+        target.closest('.btn') ||
+        target.closest('.action-icon-btn')
+      ) {
+        return;
+      }
+      setSelectedRowIds([]);
+      setLastSelectedId(null);
+    };
+
+    const handleGlobalContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      setSelectedRowIds([]);
+      setLastSelectedId(null);
+    };
+
+    window.addEventListener('click', handleDocumentClick);
+    window.addEventListener('contextmenu', handleGlobalContextMenu);
+    return () => {
+      window.removeEventListener('click', handleDocumentClick);
+      window.removeEventListener('contextmenu', handleGlobalContextMenu);
+    };
+  }, []);
 
   useEffect(() => {
     const handleArrowNavigation = (e: KeyboardEvent) => {
@@ -1146,12 +1459,28 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* Local Network Info */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.75rem' }}>
-          <div style={{ textAlign: 'right' }}>
-            <span style={{ color: 'var(--text-muted)' }}>Workstation Host: </span>
-            <strong style={{ fontFamily: 'var(--font-mono)' }}>{systemHostname}</strong>
-          </div>
+        {/* Add Appraisal Button in Header */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button
+            onClick={() => {
+              resetAddForm();
+              setIsAddModalOpen(true);
+            }}
+            disabled={isHistorical}
+            className="btn btn-secondary"
+            style={{ 
+              padding: '0.35rem 0.75rem', 
+              fontSize: '0.75rem', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.35rem', 
+              borderRadius: '6px' 
+            }}
+            id="btnAddAppraisalHeader"
+          >
+            <Plus className="w-4 h-4" />
+            Add Appraisal
+          </button>
         </div>
       </header>
 
@@ -1173,95 +1502,69 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {dayChanges.length > 0 ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', width: '100%', borderTop: '1px solid rgba(245,158,11,0.15)', paddingTop: '0.85rem' }}>
-                <div className="timeline-slider-container" style={{ flexGrow: 1 }}>
-                  <input
-                    type="range"
-                    min="0"
-                    max={dayChanges.length}
-                    value={daySliderValue}
-                    onChange={(e) => handleDaySliderChange(Number(e.target.value))}
-                    className="timeline-slider"
-                    id="dayRangeSlider"
-                  />
-                  <div className="timeline-labels">
-                    <span>Start of Day (00:00)</span>
-                    {dayChanges.map((c, idx) => {
-                      const d = new Date(c.valid_from);
-                      const label = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                      return <span key={idx}>{label}</span>;
-                    })}
-                  </div>
-                </div>
-                <div className="date-indicator" style={{ minWidth: '220px', fontSize: '0.82rem' }}>
-                  {daySliderValue === 0 ? (
-                    <span>Start of Day (00:00)</span>
-                  ) : (
-                    <span>Change {daySliderValue} of {dayChanges.length} ({new Date(dayChanges[daySliderValue - 1].valid_from).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</span>
-                  )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', width: '100%', borderTop: '1px solid rgba(245,158,11,0.15)', paddingTop: '0.85rem' }}>
+              <div className="timeline-slider-container" style={{ flexGrow: 1 }}>
+                <input
+                  type="range"
+                  min="0"
+                  max="2"
+                  value={daySliderValue}
+                  onChange={(e) => handleDaySliderChange(Number(e.target.value))}
+                  className="timeline-slider"
+                  id="dayRangeSlider"
+                />
+                <div className="timeline-labels" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.68rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                  <span>8:00 AM</span>
+                  <span>12:00 PM (Noon)</span>
+                  <span>8:00 PM</span>
                 </div>
               </div>
-            ) : (
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', borderTop: '1px solid rgba(245,158,11,0.15)', paddingTop: '0.5rem' }}>
-                No database changes were recorded on this day. Showing static snapshot.
+              <div className="date-indicator" style={{ minWidth: '180px', fontSize: '0.82rem', textAlign: 'right' }}>
+                <span>Viewing: {daySliderValue === 0 ? '8:00 AM' : daySliderValue === 1 ? '12:00 PM (Noon)' : '8:00 PM'}</span>
               </div>
-            )}
+            </div>
           </div>
         )}
 
         {/* Toolbar controls (Search, Filters, Sorting, Add, Undo/Redo) */}
         <section className="toolbar">
-          <div className="search-input-wrapper">
-            <Search className="search-icon w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Search address, type, client, status..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-input"
-              id="toolbarSearchInput"
-            />
-          </div>
-
-          {/* Color Category Filter or Bulk Selection paint bar */}
           {selectedRowIds.length > 0 && !isHistorical ? (
-            <div className="category-filter-row selection-bar-active" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border-color)', padding: '0.25rem 0.5rem', borderRadius: '8px', animation: 'fade-in 0.15s ease' }}>
-              <span className="floating-selection-count" style={{ fontWeight: 700, fontSize: '0.75rem', color: 'var(--text-primary)' }}>
-                {selectedRowIds.length} Selected
-              </span>
-              <div style={{ height: '14px', width: '1px', backgroundColor: 'var(--border-color)', margin: '0 0.25rem' }}></div>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginRight: '0.15rem' }}>
-                  Paint Category:
+            <div className="category-filter-row selection-bar-active" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border-color)', padding: '0.25rem 0.5rem', borderRadius: '8px', animation: 'fade-in 0.15s ease', width: '100%', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span className="floating-selection-count" style={{ fontWeight: 700, fontSize: '0.75rem', color: 'var(--text-primary)' }}>
+                  {selectedRowIds.length} Selected
                 </span>
-                {['black', 'blue', 'purple', 'brown', 'gold'].map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => handlePaintRowsColor(color)}
-                    className="color-option-btn"
-                    style={{
-                      height: '24px',
-                      padding: '0 0.5rem',
-                      fontSize: '0.7rem',
-                      textTransform: 'capitalize',
-                      backgroundColor: `var(--cat-${color}-bg)`,
-                      color: `var(--cat-${color}-border)`,
-                      borderColor: `var(--cat-${color}-border)`,
-                      borderWidth: '1px',
-                      borderStyle: 'solid',
-                      cursor: 'pointer',
-                      borderRadius: '4px'
-                    }}
-                    title={`Paint selected rows ${color}`}
-                  >
-                    {color}
-                  </button>
-                ))}
+                <div style={{ height: '14px', width: '1px', backgroundColor: 'var(--border-color)', margin: '0 0.25rem' }}></div>
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginRight: '0.15rem' }}>
+                    Paint Category:
+                  </span>
+                  {['black', 'blue', 'purple', 'brown', 'gold'].map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => handlePaintRowsColor(color)}
+                      className="color-option-btn"
+                      style={{
+                        height: '24px',
+                        padding: '0 0.5rem',
+                        fontSize: '0.7rem',
+                        textTransform: 'capitalize',
+                        backgroundColor: `var(--cat-${color}-bg)`,
+                        color: `var(--cat-${color}-border)`,
+                        borderColor: `var(--cat-${color}-border)`,
+                        borderWidth: '1px',
+                        borderStyle: 'solid',
+                        cursor: 'pointer',
+                        borderRadius: '4px'
+                      }}
+                      title={`Paint selected rows ${color}`}
+                    >
+                      {color}
+                    </button>
+                  ))}
+                </div>
               </div>
-
-              <div style={{ height: '14px', width: '1px', backgroundColor: 'var(--border-color)', margin: '0 0.25rem' }}></div>
 
               <div style={{ display: 'flex', gap: '0.35rem' }}>
                 <button
@@ -1297,97 +1600,52 @@ export default function Dashboard() {
               </div>
             </div>
           ) : (
-            <div className="category-filter-row">
-              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginRight: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Filter by Color:
-              </span>
-              <button
-                onClick={() => setColorFilter('all')}
-                className={`btn btn-secondary ${colorFilter === 'all' ? 'active' : ''}`}
-                style={{ padding: '0.35rem 0.7rem', fontSize: '0.75rem', border: colorFilter === 'all' ? '1px solid var(--text-primary)' : '1px solid var(--border-color)' }}
-              >
-                All
-              </button>
-              {['black', 'blue', 'purple', 'brown', 'gold'].map(color => (
+            <>
+              <div className="search-input-wrapper">
+                <Search className="search-icon w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="search-input"
+                  id="toolbarSearchInput"
+                />
+              </div>
+
+              <div className="category-filter-row">
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginRight: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Filter by Color:
+                </span>
                 <button
-                  key={color}
-                  onClick={() => setColorFilter(color)}
-                  className={`btn btn-secondary`}
-                  style={{
-                    padding: '0.35rem 0.7rem',
-                    fontSize: '0.75rem',
-                    textTransform: 'capitalize',
-                    backgroundColor: `var(--cat-${color}-bg)`,
-                    color: `var(--cat-${color}-border)`,
-                    borderColor: colorFilter === color ? 'var(--text-primary)' : `var(--border-color)`,
-                    borderWidth: '1px',
-                    borderStyle: 'solid'
-                  }}
+                  onClick={() => setColorFilter('all')}
+                  className={`btn btn-secondary ${colorFilter === 'all' ? 'active' : ''}`}
+                  style={{ padding: '0.35rem 0.7rem', fontSize: '0.75rem', border: colorFilter === 'all' ? '1px solid var(--text-primary)' : '1px solid var(--border-color)' }}
                 >
-                  {color}
+                  All
                 </button>
-              ))}
-            </div>
+                {['black', 'blue', 'purple', 'brown', 'gold'].map(color => (
+                  <button
+                    key={color}
+                    onClick={() => setColorFilter(color)}
+                    className={`btn btn-secondary`}
+                    style={{
+                      padding: '0.35rem 0.7rem',
+                      fontSize: '0.75rem',
+                      textTransform: 'capitalize',
+                      backgroundColor: `var(--cat-${color}-bg)`,
+                      color: `var(--cat-${color}-border)`,
+                      borderColor: colorFilter === color ? 'var(--text-primary)' : `var(--border-color)`,
+                      borderWidth: '1px',
+                      borderStyle: 'solid'
+                    }}
+                  >
+                    {color}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
-
-          <div className="action-buttons">
-            {/* Undo / Redo Toolbar Controls */}
-            <div style={{ display: 'flex', gap: '0.2rem', backgroundColor: 'var(--bg-primary)', padding: '0.15rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
-              <button
-                onClick={undo}
-                disabled={isHistorical || undoStack.length === 0}
-                className="btn btn-outline"
-                style={{ padding: '0.3rem 0.6rem', borderRadius: '4px', opacity: (isHistorical || undoStack.length === 0) ? 0.3 : 1 }}
-                title={`Undo (Ctrl+Z) - ${undoStack.length} actions stored`}
-                id="btnUndo"
-              >
-                <Undo2 className="w-3.5 h-3.5" />
-                <span style={{ fontSize: '0.75rem' }}>{undoStack.length > 0 ? undoStack.length : ''}</span>
-              </button>
-              <button
-                onClick={redo}
-                disabled={isHistorical || redoStack.length === 0}
-                className="btn btn-outline"
-                style={{ padding: '0.3rem 0.6rem', borderRadius: '4px', opacity: (isHistorical || redoStack.length === 0) ? 0.3 : 1 }}
-                title={`Redo (Ctrl+Y / Ctrl+Shift+Z) - ${redoStack.length} actions stored`}
-                id="btnRedo"
-              >
-                <Redo2 className="w-3.5 h-3.5" />
-                <span style={{ fontSize: '0.75rem' }}>{redoStack.length > 0 ? redoStack.length : ''}</span>
-              </button>
-            </div>
-
-            {/* Sorting Buttons */}
-            <div className="sort-btn-group">
-              <button
-                onClick={() => setSortBy(sortBy === 'due_date' ? 'none' : 'due_date')}
-                className={`sort-segment ${sortBy === 'due_date' ? 'active' : ''}`}
-                id="btnSortDueDate"
-              >
-                Sort By Due Date
-              </button>
-              <button
-                onClick={() => setSortBy(sortBy === 'inspection' ? 'none' : 'inspection')}
-                className={`sort-segment ${sortBy === 'inspection' ? 'active' : ''}`}
-                id="btnSortInspection"
-              >
-                Sort By Inspection
-              </button>
-            </div>
-
-            <button
-              onClick={() => {
-                resetAddForm();
-                setIsAddModalOpen(true);
-              }}
-              disabled={isHistorical}
-              className="btn btn-primary"
-              id="btnAddAppraisal"
-            >
-              <Plus className="w-4 h-4" />
-              Add Appraisal
-            </button>
-          </div>
         </section>
 
         {/* Appraisal Grid Table */}
@@ -1395,15 +1653,27 @@ export default function Dashboard() {
           <table className="appraisal-table">
             <thead>
               <tr>
-                <th className="sticky-col">Property Address</th>
-                <th>Appraisal Type</th>
-                <th>Inspection Date</th>
-                <th>Time</th>
-                <th>Due Date</th>
-                <th>Status</th>
-                <th>Client</th>
-                <th>Fee</th>
-                <th style={{ textAlign: 'right', width: '120px' }}>Actions</th>
+                <th className="sticky-col" style={{ textAlign: 'left', width: '28%' }}>Property Address</th>
+                <th style={{ textAlign: 'center', width: '12%' }}>Appraisal Type</th>
+                <th 
+                  onClick={() => setSortBy(sortBy === 'inspection' ? 'none' : 'inspection')}
+                  style={{ cursor: 'pointer', userSelect: 'none', textAlign: 'center', width: '12%' }}
+                  className={sortBy === 'inspection' ? 'sorted-header' : ''}
+                >
+                  Inspection Date {sortBy === 'inspection' && '▼'}
+                </th>
+                <th style={{ textAlign: 'center', width: '10%' }}>Time</th>
+                <th 
+                  onClick={() => setSortBy(sortBy === 'due_date' ? 'none' : 'due_date')}
+                  style={{ cursor: 'pointer', userSelect: 'none', textAlign: 'center', width: '12%' }}
+                  className={sortBy === 'due_date' ? 'sorted-header' : ''}
+                >
+                  Due Date {sortBy === 'due_date' && '▼'}
+                </th>
+                <th style={{ textAlign: 'center', width: '10%' }}>Status</th>
+                <th style={{ textAlign: 'center', width: '10%' }}>Client</th>
+                <th style={{ textAlign: 'right', width: '8%' }}>Fee</th>
+                <th style={{ textAlign: 'right', width: '85px' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1435,50 +1705,50 @@ export default function Dashboard() {
                 filteredAppraisals.map((app) => {
                   const addr = splitAddress(app.address);
                   const dueBadge = getDueDateBadge(app.due_date);
+                  const inspDateSplit = formatDateLabelSplit(app.inspection_date);
+                  const dueDateSplit = formatDateLabelSplit(app.due_date);
                   
                   return (
                     <tr 
                       key={app.id}
                       className={`appraisal-row row-cat-${app.color_category} ${selectedRowIds.includes(app.id) ? 'selected-row' : ''}`}
-                      onClick={(e) => handleRowClick(app.id, e)}
+                      onClick={(e) => {
+                        if (isLongPressRef.current) {
+                          isLongPressRef.current = false;
+                          return;
+                        }
+                        handleRowClick(app.id, e);
+                      }}
+                      onContextMenu={(e) => handleRowContextMenu(app, e)}
+                      onTouchStart={handleTouchStart(app.address)}
+                      onTouchEnd={handleTouchEnd}
+                      onTouchMove={handleTouchMove}
+                      onTouchCancel={handleTouchEnd}
                     >
-                      {/* Frozen Address column */}
+                      {/* Frozen Address column - Double click opens in Google Maps */}
                       <td 
-                        className="editable-cell sticky-col"
-                        onDoubleClick={() => {
-                          if (isHistorical) return;
-                          setEditingCell({ id: app.id, field: 'address' });
-                          setInlineValue(app.address);
+                        className="sticky-col"
+                        style={{ textAlign: 'left' }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(app.address)}`;
+                          window.open(mapsUrl, '_blank');
                         }}
                       >
-                        {editingCell?.id === app.id && editingCell?.field === 'address' ? (
-                          <input
-                            ref={inlineInputRef}
-                            type="text"
-                            value={inlineValue}
-                            onChange={(e) => setInlineValue(e.target.value)}
-                            onBlur={() => handleInlineSave(app.id, 'address')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleInlineSave(app.id, 'address');
-                              if (e.key === 'Escape') setEditingCell(null);
-                            }}
-                            className="inline-input"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          <div>
-                            <div className="address-primary">
-                              {addr.primary}
-                            </div>
-                            {addr.secondary && <div className="address-secondary">{addr.secondary}</div>}
+                        <div>
+                          <div className="address-primary">
+                            {addr.primary}
                           </div>
-                        )}
+                          {addr.secondary && <div className="address-secondary">{addr.secondary}</div>}
+                        </div>
                       </td>
 
                       {/* Type column */}
                       <td 
                         className="editable-cell"
-                        onDoubleClick={() => {
+                        style={{ textAlign: 'center' }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'type' });
                           setInlineValue(app.type);
@@ -1506,7 +1776,9 @@ export default function Dashboard() {
                       {/* Inspection Date column */}
                       <td 
                         className="editable-cell"
-                        onDoubleClick={() => {
+                        style={{ textAlign: 'center' }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'inspection_date' });
                           setInlineValue(app.inspection_date);
@@ -1527,9 +1799,10 @@ export default function Dashboard() {
                             onClick={(e) => e.stopPropagation()}
                           />
                         ) : (
-                          app.inspection_date ? (
-                            <div className="date-cell-wrapper">
-                              <span>{formatDateLabel(app.inspection_date)}</span>
+                          inspDateSplit ? (
+                            <div className="date-display-split">
+                              <div className="date-weekday">{inspDateSplit.weekday}</div>
+                              <div className="date-sub">{inspDateSplit.date}</div>
                             </div>
                           ) : (
                             <span style={{ color: 'var(--text-muted)' }}>xx</span>
@@ -1540,16 +1813,18 @@ export default function Dashboard() {
                       {/* Inspection Time column */}
                       <td 
                         className="editable-cell"
-                        onDoubleClick={() => {
+                        style={{ textAlign: 'center' }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'inspection_time' });
-                          setInlineValue(app.inspection_time);
+                          setInlineValue(timeTo24h(app.inspection_time));
                         }}
                       >
                         {editingCell?.id === app.id && editingCell?.field === 'inspection_time' ? (
                           <input
                             ref={inlineInputRef}
-                            type="text"
+                            type="time"
                             value={inlineValue}
                             onChange={(e) => setInlineValue(e.target.value)}
                             onBlur={() => handleInlineSave(app.id, 'inspection_time')}
@@ -1562,8 +1837,8 @@ export default function Dashboard() {
                           />
                         ) : (
                           app.inspection_time ? (
-                            <div className="date-cell-wrapper" style={{ fontWeight: 400 }}>
-                              <span>{app.inspection_time}</span>
+                            <div className="date-cell-wrapper" style={{ fontWeight: 400, justifyContent: 'center' }}>
+                              <span>{formatTimeLabel(app.inspection_time)}</span>
                             </div>
                           ) : (
                             <span style={{ color: 'var(--text-muted)' }}>xx</span>
@@ -1574,7 +1849,9 @@ export default function Dashboard() {
                       {/* Due Date column */}
                       <td 
                         className="editable-cell"
-                        onDoubleClick={() => {
+                        style={{ textAlign: 'center' }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'due_date' });
                           setInlineValue(app.due_date);
@@ -1595,10 +1872,11 @@ export default function Dashboard() {
                             onClick={(e) => e.stopPropagation()}
                           />
                         ) : (
-                          app.due_date ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                              <div className="date-cell-wrapper">
-                                <span>{formatDateLabel(app.due_date)}</span>
+                          dueDateSplit ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', alignItems: 'center' }}>
+                              <div className="date-display-split">
+                                <div className="date-weekday">{dueDateSplit.weekday}</div>
+                                <div className="date-sub">{dueDateSplit.date}</div>
                               </div>
                               {dueBadge && (
                                 <div style={{ display: 'flex' }}>
@@ -1615,7 +1893,9 @@ export default function Dashboard() {
                       {/* Status/Stats Badge column */}
                       <td 
                         className="editable-cell"
-                        onDoubleClick={() => {
+                        style={{ textAlign: 'center' }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'stats' });
                           setInlineValue(app.stats);
@@ -1649,7 +1929,9 @@ export default function Dashboard() {
                       {/* Client column */}
                       <td 
                         className="editable-cell"
-                        onDoubleClick={() => {
+                        style={{ textAlign: 'center' }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'client' });
                           setInlineValue(app.client);
@@ -1677,7 +1959,9 @@ export default function Dashboard() {
                       {/* Fee column */}
                       <td 
                         className="editable-cell fee-cell"
-                        onDoubleClick={() => {
+                        style={{ textAlign: 'right' }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
                           if (isHistorical) return;
                           setEditingCell({ id: app.id, field: 'fee' });
                           setInlineValue(String(app.fee));
@@ -1711,7 +1995,7 @@ export default function Dashboard() {
                             title="Copy / Clone similar appraisal"
                             className="action-icon-btn"
                           >
-                            <Copy className="w-4 h-4" />
+                            <Copy className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => openEditModal(app)}
@@ -1719,7 +2003,7 @@ export default function Dashboard() {
                             title="Edit full appraisal details"
                             className="action-icon-btn"
                           >
-                            <Edit3 className="w-4 h-4" />
+                            <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           <button
                             onClick={() => handleDeleteAppraisal(app.id)}
@@ -1727,7 +2011,7 @@ export default function Dashboard() {
                             title="Delete appointment"
                             className="action-icon-btn delete"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
                       </td>
@@ -1812,7 +2096,7 @@ export default function Dashboard() {
                       ${ytdFeeSum.toLocaleString('en-US')}
                     </span>
                     <span className="ytd-projected-val" id="kpiYtdProjectedSidebar">
-                      Proj: ${projectedFeeSum.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+                      ${projectedFeeSum.toLocaleString('en-US', { maximumFractionDigits: 0 })}
                     </span>
                   </div>
                 </div>
@@ -1986,11 +2270,10 @@ export default function Dashboard() {
                 <div className="form-group">
                   <label>Time</label>
                   <input
-                    type="text"
+                    type="time"
                     value={formInspectionTime}
                     onChange={(e) => setFormInspectionTime(e.target.value)}
                     className="form-input"
-                    placeholder="e.g. 4:30 AM"
                   />
                 </div>
               </div>
@@ -2121,7 +2404,7 @@ export default function Dashboard() {
                 <div className="form-group">
                   <label>Time</label>
                   <input
-                    type="text"
+                    type="time"
                     value={formInspectionTime}
                     onChange={(e) => setFormInspectionTime(e.target.value)}
                     className="form-input"
