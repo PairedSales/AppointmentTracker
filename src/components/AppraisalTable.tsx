@@ -61,16 +61,12 @@ export function AppraisalTable({
 }: AppraisalTableProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
-  // Profiling Counter
-  const renderCountRef = useRef(0);
-  renderCountRef.current += 1;
-  console.log(`[AppraisalTable Profiling] Render #${renderCountRef.current} at ${performance.now().toFixed(2)}ms, items: ${filteredAppraisals.length}`);
-
   const rowVirtualizer = useVirtualizer({
     count: filteredAppraisals.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 65,
     overscan: 10,
+    getItemKey: (index) => filteredAppraisals[index].id,
   });
 
   return (
@@ -220,6 +216,11 @@ export function AppraisalTable({
                               setInlineValue(val);
                             }}
                             onClose={() => handleInlineSave(app.id, 'inspection_date')}
+                            onBlur={() => handleInlineSave(app.id, 'inspection_date')}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleInlineSave(app.id, 'inspection_date');
+                              if (e.key === 'Escape') setEditingCell(null);
+                            }}
                             isInline
                             autoFocus
                           />
@@ -253,6 +254,11 @@ export function AppraisalTable({
                               setInlineValue(val);
                             }}
                             onClose={() => handleInlineSave(app.id, 'inspection_time')}
+                            onBlur={() => handleInlineSave(app.id, 'inspection_time')}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleInlineSave(app.id, 'inspection_time');
+                              if (e.key === 'Escape') setEditingCell(null);
+                            }}
                             isInline
                             autoFocus
                           />
@@ -285,6 +291,11 @@ export function AppraisalTable({
                               setInlineValue(val);
                             }}
                             onClose={() => handleInlineSave(app.id, 'due_date')}
+                            onBlur={() => handleInlineSave(app.id, 'due_date')}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleInlineSave(app.id, 'due_date');
+                              if (e.key === 'Escape') setEditingCell(null);
+                            }}
                             isInline
                             autoFocus
                           />

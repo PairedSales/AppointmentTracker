@@ -10,7 +10,7 @@ export function useAppraisals(
 ) {
   const queryClient = useQueryClient();
   const [appraisals, setAppraisals] = useState<Appraisal[]>([]);
-  const [viewMode, setViewMode] = useState<'active' | 'completed' | 'time-machine' | 'accounting'>('active');
+  const [viewMode, setViewModeState] = useState<'active' | 'completed' | 'time-machine' | 'accounting'>('active');
 
   const [searchQuery, setSearchQuery] = useState('');
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -32,6 +32,15 @@ export function useAppraisals(
     setSelectedRowIds([]);
     setLastSelectedId(null);
   }, []);
+
+  const setViewMode = useCallback((mode: 'active' | 'completed' | 'time-machine' | 'accounting') => {
+    if (mode !== viewMode) {
+      clearSelection();
+      const cachedData = queryClient.getQueryData<Appraisal[]>(['appraisals', mode]);
+      setAppraisals(cachedData || []);
+      setViewModeState(mode);
+    }
+  }, [viewMode, clearSelection, queryClient]);
 
   const YTD_BASELINE = 165360;
 

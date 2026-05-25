@@ -42,10 +42,6 @@ export default function Dashboard() {
   const [daySliderValue, setDaySliderValue] = useState(0);
   const [dailyMetrics, setDailyMetrics] = useState<any>(null);
 
-  // Profiling Counter
-  const renderCountRef = useRef(0);
-  renderCountRef.current += 1;
-
   // Filter Appraisals (from hook or managed here if we must break loops)
   // Let's rely on the custom hooks.
   const fetchAppraisalsRef = useRef<any>(null);
@@ -67,8 +63,6 @@ export default function Dashboard() {
     handleMarkInspected, handleMarkCompleted, handleMarkPaid, handleBulkMarkPaid,
     selectedRowIds, setSelectedRowIds, lastSelectedId, setLastSelectedId, clearSelection, handleRowClick
   } = useAppraisals(pushAction, isHistorical, weeksInYear);
-
-  console.log(`[Dashboard Profiling] Render #${renderCountRef.current} at ${performance.now().toFixed(2)}ms (viewMode: ${viewMode || 'unknown'})`);
 
   useEffect(() => {
     fetchAppraisalsRef.current = fetchAppraisals;
@@ -700,7 +694,6 @@ export default function Dashboard() {
               )}
             </section>
 
-            <section className="table-container">
               <AppraisalTable 
                 isLoading={isLoadingState}
                 filteredAppraisals={filteredAppraisals}
@@ -725,7 +718,6 @@ export default function Dashboard() {
                 viewMode={viewMode}
                 handleMarkPaid={handleMarkPaid}
               />
-            </section>
 
             <section className="middle-section">
               <div className="notes-card-clean">

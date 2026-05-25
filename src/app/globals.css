@@ -80,13 +80,20 @@ input, textarea, [contenteditable="true"] {
   background: var(--border-hover);
 }
 
+html, body {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-family);
   line-height: 1.5;
-  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Header UI */
@@ -130,7 +137,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  flex-grow: 1;
+  flex: 1;
+  min-height: 0;
 }
 
 /* Warning Banner for Time Travel */
@@ -307,6 +315,8 @@ body {
   overflow: auto; /* Handles horizontal and vertical scroll nicely */
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
   position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 .appraisal-table {
