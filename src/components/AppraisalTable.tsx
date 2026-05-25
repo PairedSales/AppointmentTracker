@@ -86,8 +86,8 @@ export default function AppraisalTable({
             <th style={{ textAlign: 'right', width: '120px' }}>Actions</th>
           </tr>
         </thead>
-        <tbody>
-          {isLoading ? (
+        <tbody style={{ opacity: isLoading && filteredAppraisals.length > 0 ? 0.4 : 1, transition: 'opacity 0.2s ease-in-out' }}>
+          {isLoading && filteredAppraisals.length === 0 ? (
             Array.from({ length: 5 }).map((_, i) => (
               <tr key={i} className="skeleton-row">
                 <td className="sticky-col"><div className="skeleton-bar"></div></td>
