@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useTransition } from 'react';
 import { Clock, Settings, Calendar, Map, Plus } from 'lucide-react';
 import { CalendarPicker } from './CalendarPicker';
 import { Appraisal } from '../types';
@@ -40,13 +40,24 @@ export function DashboardHeader({
   setIsMapModalOpen,
   setIsAddModalOpen
 }: DashboardHeaderProps) {
+  const [isPending, startTransition] = useTransition();
+
+  const handleTabSwitch = (mode: 'active' | 'completed' | 'time-machine' | 'accounting') => {
+    startTransition(() => {
+      setViewMode(mode);
+      setTravelDate('');
+      setDailyMetrics(null);
+      if (isHistorical) handleExitTimeTravel();
+    });
+  };
+
   return (
     <header className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid var(--border-color)' }}>
       <div className="logo-section" style={{ display: 'flex', alignItems: 'center', gap: '1.25rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <div>
             <h1 style={{ fontSize: '1.25rem', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Clock className="w-5 h-5 text-blue-500" />
+              <Clock className={`w-5 h-5 text-blue-500 ${isPending ? 'animate-pulse' : ''}`} />
               Appraisal Tracker
             </h1>
             <span className="logo-subtitle" style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Active Ledger & Timeline Snapshots</span>
@@ -63,30 +74,30 @@ export function DashboardHeader({
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <div style={{ display: 'flex', backgroundColor: 'var(--bg-secondary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+        <div style={{ display: 'flex', backgroundColor: 'var(--bg-secondary)', padding: '0.25rem', borderRadius: '8px', border: '1px solid var(--border-color)', opacity: isPending ? 0.7 : 1, transition: 'opacity 0.2s ease-in-out' }}>
           <button
-            onClick={() => { setViewMode('active'); setTravelDate(''); setDailyMetrics(null); if(isHistorical) handleExitTimeTravel(); }}
+            onClick={() => handleTabSwitch('active')}
             className={`btn ${viewMode === 'active' && !isHistorical ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '0.4rem 1rem', borderRadius: '6px', fontSize: '0.8rem', border: viewMode === 'active' && !isHistorical ? '' : 'none', boxShadow: viewMode === 'active' && !isHistorical ? '' : 'none' }}
           >
             Active Orders
           </button>
           <button
-            onClick={() => { setViewMode('completed'); setTravelDate(''); setDailyMetrics(null); if(isHistorical) handleExitTimeTravel(); }}
+            onClick={() => handleTabSwitch('completed')}
             className={`btn hide-on-mobile ${viewMode === 'completed' && !isHistorical ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '0.4rem 1rem', borderRadius: '6px', fontSize: '0.8rem', border: viewMode === 'completed' && !isHistorical ? '' : 'none', boxShadow: viewMode === 'completed' && !isHistorical ? '' : 'none' }}
           >
             Completed Orders
           </button>
           <button
-            onClick={() => { setViewMode('accounting'); setTravelDate(''); setDailyMetrics(null); if(isHistorical) handleExitTimeTravel(); }}
+            onClick={() => handleTabSwitch('accounting')}
             className={`btn hide-on-mobile ${viewMode === 'accounting' && !isHistorical ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '0.4rem 1rem', borderRadius: '6px', fontSize: '0.8rem', border: viewMode === 'accounting' && !isHistorical ? '' : 'none', boxShadow: viewMode === 'accounting' && !isHistorical ? '' : 'none' }}
           >
             Accounting
           </button>
           <button
-            onClick={() => { setViewMode('time-machine'); setTravelDate(''); setDailyMetrics(null); if(isHistorical) handleExitTimeTravel(); }}
+            onClick={() => handleTabSwitch('time-machine')}
             className={`btn hide-on-mobile ${viewMode === 'time-machine' || isHistorical ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '0.4rem 1rem', borderRadius: '6px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem', border: viewMode === 'time-machine' || isHistorical ? '' : 'none', boxShadow: viewMode === 'time-machine' || isHistorical ? '' : 'none' }}
           >

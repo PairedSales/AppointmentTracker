@@ -8,6 +8,7 @@ import {
   convertTo24Hour,
   convertTo12Hour,
 } from '../lib/utils';
+import { AppDatePicker, AppTimePicker } from './Pickers';
 
 interface AppraisalTableProps {
   isLoading: boolean;
@@ -59,6 +60,11 @@ export function AppraisalTable({
   handleMarkPaid,
 }: AppraisalTableProps) {
   const parentRef = useRef<HTMLDivElement>(null);
+
+  // Profiling Counter
+  const renderCountRef = useRef(0);
+  renderCountRef.current += 1;
+  console.log(`[AppraisalTable Profiling] Render #${renderCountRef.current} at ${performance.now().toFixed(2)}ms, items: ${filteredAppraisals.length}`);
 
   const rowVirtualizer = useVirtualizer({
     count: filteredAppraisals.length,
@@ -207,19 +213,17 @@ export function AppraisalTable({
                       }}
                     >
                       {editingCell?.id === app.id && editingCell?.field === 'inspection_date' ? (
-                        <input
-                          ref={inlineInputRef}
-                          type="date"
-                          value={inlineValue}
-                          onChange={(e) => setInlineValue(e.target.value)}
-                          onBlur={() => handleInlineSave(app.id, 'inspection_date')}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleInlineSave(app.id, 'inspection_date');
-                            if (e.key === 'Escape') setEditingCell(null);
-                          }}
-                          className="inline-input"
-                          onClick={(e) => e.stopPropagation()}
-                        />
+                        <div onClick={(e) => e.stopPropagation()} style={{ height: '100%', minHeight: '38px', minWidth: '120px' }}>
+                          <AppDatePicker
+                            value={inlineValue}
+                            onChange={(val) => {
+                              setInlineValue(val);
+                            }}
+                            onClose={() => handleInlineSave(app.id, 'inspection_date')}
+                            isInline
+                            autoFocus
+                          />
+                        </div>
                       ) : (
                         app.inspection_date ? (
                           <div className="date-cell-wrapper-stacked" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -242,19 +246,17 @@ export function AppraisalTable({
                       }}
                     >
                       {editingCell?.id === app.id && editingCell?.field === 'inspection_time' ? (
-                        <input
-                          ref={inlineInputRef}
-                          type="time"
-                          value={convertTo24Hour(inlineValue)}
-                          onChange={(e) => setInlineValue(convertTo12Hour(e.target.value))}
-                          onBlur={() => handleInlineSave(app.id, 'inspection_time')}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleInlineSave(app.id, 'inspection_time');
-                            if (e.key === 'Escape') setEditingCell(null);
-                          }}
-                          className="inline-input"
-                          onClick={(e) => e.stopPropagation()}
-                        />
+                        <div onClick={(e) => e.stopPropagation()} style={{ height: '100%', minHeight: '38px', minWidth: '100px' }}>
+                          <AppTimePicker
+                            value={inlineValue}
+                            onChange={(val) => {
+                              setInlineValue(val);
+                            }}
+                            onClose={() => handleInlineSave(app.id, 'inspection_time')}
+                            isInline
+                            autoFocus
+                          />
+                        </div>
                       ) : (
                         app.inspection_time ? (
                           <div className="date-cell-wrapper-stacked" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
@@ -276,19 +278,17 @@ export function AppraisalTable({
                       }}
                     >
                       {editingCell?.id === app.id && editingCell?.field === 'due_date' ? (
-                        <input
-                          ref={inlineInputRef}
-                          type="date"
-                          value={inlineValue}
-                          onChange={(e) => setInlineValue(e.target.value)}
-                          onBlur={() => handleInlineSave(app.id, 'due_date')}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleInlineSave(app.id, 'due_date');
-                            if (e.key === 'Escape') setEditingCell(null);
-                          }}
-                          className="inline-input"
-                          onClick={(e) => e.stopPropagation()}
-                        />
+                        <div onClick={(e) => e.stopPropagation()} style={{ height: '100%', minHeight: '38px', minWidth: '120px' }}>
+                          <AppDatePicker
+                            value={inlineValue}
+                            onChange={(val) => {
+                              setInlineValue(val);
+                            }}
+                            onClose={() => handleInlineSave(app.id, 'due_date')}
+                            isInline
+                            autoFocus
+                          />
+                        </div>
                       ) : (
                         app.due_date ? (
                           <div className="date-cell-wrapper-stacked" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>

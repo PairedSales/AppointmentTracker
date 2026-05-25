@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Appraisal } from '../../types';
+import { AppDatePicker, AppTimePicker } from '../Pickers';
 
 interface CloneAppraisalModalProps {
   isOpen: boolean;
@@ -59,13 +60,12 @@ export function CloneAppraisalModal({ isOpen, onClose, onClone, targetAppraisal 
 
           <div className="form-group">
             <label>New Due Date</label>
-            <input
-              type="date"
-              required
-              value={cloneDueDate}
-              onChange={(e) => setCloneDueDate(e.target.value)}
-              className="form-input"
-            />
+            <div style={{ height: '38px' }}>
+              <AppDatePicker
+                value={cloneDueDate}
+                onChange={setCloneDueDate}
+              />
+            </div>
           </div>
 
           <div className="modal-actions" style={{ marginTop: '0.5rem' }}>

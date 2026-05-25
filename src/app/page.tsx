@@ -12,7 +12,6 @@ import { autoFormatAddress, removeUnscheduled, getSnapshotTimestamp } from '../l
 
 // Hooks
 import { useSettings } from '../hooks/useSettings';
-import { useSelection } from '../hooks/useSelection';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { useAppraisals } from '../hooks/useAppraisals';
 
@@ -37,31 +36,26 @@ export default function Dashboard() {
   } = useSettings();
 
   // Core Appraisals Hook Setup
-  const [appraisalsList, setAppraisalsList] = useState<Appraisal[]>([]); // To pass down if needed directly, but handled inside useAppraisals
-  
-  const [viewModeState, setViewModeState] = useState<'active' | 'completed' | 'time-machine' | 'accounting'>('active');
-  const [isHistoricalState, setIsHistoricalState] = useState(false);
+  const [isHistorical, setIsHistorical] = useState(false);
   const [travelDate, setTravelDate] = useState('');
   const [isTimeTravelOpen, setIsTimeTravelOpen] = useState(false);
   const [daySliderValue, setDaySliderValue] = useState(0);
   const [dailyMetrics, setDailyMetrics] = useState<any>(null);
 
+  // Profiling Counter
+  const renderCountRef = useRef(0);
+  renderCountRef.current += 1;
+
   // Filter Appraisals (from hook or managed here if we must break loops)
   // Let's rely on the custom hooks.
   const fetchAppraisalsRef = useRef<any>(null);
+  const clearSelectionRef = useRef<any>(null);
 
-  const {
-    selectedRowIds, setSelectedRowIds, lastSelectedId, setLastSelectedId, clearSelection, handleRowClick
-  } = useSelection(isHistoricalState, appraisalsList); // Note: we need appraisalsList for shift-click, we will feed it.
-
-
-
-  const { undoStack, redoStack, pushAction, undo, redo } = useUndoRedo(isHistoricalState, (...args: any[]) => fetchAppraisalsRef.current?.(...args), clearSelection);
+  const { undoStack, redoStack, pushAction, undo, redo } = useUndoRedo(isHistorical, (...args: any[]) => fetchAppraisalsRef.current?.(...args), () => clearSelectionRef.current?.());
 
   const {
     appraisals, setAppraisals,
     isLoading: isLoadingState,
-    isHistorical, setIsHistorical,
     viewMode, setViewMode,
     searchQuery, setSearchQuery,
     cityFilter, setCityFilter,
@@ -70,25 +64,16 @@ export default function Dashboard() {
     filteredAppraisals,
     activeCount, activeFeeSum, ytdFeeSum, projectedFeeSum,
     fetchAppraisals, handlePaintRowsColor, handleDeleteAppraisal, handleBulkDelete,
-    handleMarkInspected, handleMarkCompleted, handleMarkPaid, handleBulkMarkPaid
-  } = useAppraisals(pushAction, clearSelection, selectedRowIds, weeksInYear);
+    handleMarkInspected, handleMarkCompleted, handleMarkPaid, handleBulkMarkPaid,
+    selectedRowIds, setSelectedRowIds, lastSelectedId, setLastSelectedId, clearSelection, handleRowClick
+  } = useAppraisals(pushAction, isHistorical, weeksInYear);
 
-  // Sync state between hooks and page wrapper
-  useEffect(() => {
-    setViewMode(viewModeState);
-  }, [viewModeState, setViewMode]);
+  console.log(`[Dashboard Profiling] Render #${renderCountRef.current} at ${performance.now().toFixed(2)}ms (viewMode: ${viewMode || 'unknown'})`);
 
   useEffect(() => {
     fetchAppraisalsRef.current = fetchAppraisals;
-  }, [fetchAppraisals]);
-
-  useEffect(() => {
-    setIsHistorical(isHistoricalState);
-  }, [isHistoricalState]);
-
-  useEffect(() => {
-    setAppraisalsList(filteredAppraisals);
-  }, [filteredAppraisals]);
+    clearSelectionRef.current = clearSelection;
+  }, [fetchAppraisals, clearSelection]);
 
   // Modals & Temp States
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -251,7 +236,7 @@ export default function Dashboard() {
       fetchAppraisals(targetTimestamp, 'time-machine');
       fetchMetrics(date);
     } else {
-      setIsHistoricalState(true);
+      setIsHistorical(true);
       setDaySliderValue(1);
       const targetTimestamp = getSnapshotTimestamp(date, 1);
       fetchAppraisals(targetTimestamp);
@@ -279,7 +264,7 @@ export default function Dashboard() {
   };
 
   const handleExitTimeTravel = () => {
-    setIsHistoricalState(false);
+    setIsHistorical(false);
     setTravelDate('');
     setDaySliderValue(0);
     setIsTimeTravelOpen(false);
@@ -320,7 +305,7 @@ export default function Dashboard() {
       fetchAppraisals();
     }
     fetchSettings();
-  }, [viewModeState, fetchAppraisals, isHistorical, fetchSettings]);
+  }, [viewMode, fetchAppraisals, isHistorical, fetchSettings]);
 
   useEffect(() => {
     if (editingCell && inlineInputRef.current) {
@@ -474,11 +459,11 @@ export default function Dashboard() {
         homeAddress={homeAddress}
         setFormHomeAddress={setFormHomeAddress}
         setIsOptionsOpen={setIsOptionsOpen}
-        viewMode={viewModeState}
-        setViewMode={setViewModeState}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
         setTravelDate={setTravelDate}
         setDailyMetrics={setDailyMetrics}
-        isHistorical={isHistoricalState}
+        isHistorical={isHistorical}
         handleExitTimeTravel={handleExitTimeTravel}
         isTimeTravelOpen={isTimeTravelOpen}
         setIsTimeTravelOpen={setIsTimeTravelOpen}
@@ -491,11 +476,11 @@ export default function Dashboard() {
 
       <main className="dashboard-container" style={{ marginTop: '1rem' }}>
         
-        {viewModeState === 'accounting' ? (
+        {viewMode === 'accounting' ? (
           <AccountingDashboard />
         ) : (
           <>
-            {isHistoricalState && travelDate && (
+            {isHistorical && travelDate && (
               <div className="historical-banner" style={{ flexDirection: 'column', gap: '0.85rem', alignItems: 'stretch', padding: '0.85rem 1.25rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -533,7 +518,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            {viewModeState === 'time-machine' && (
+            {viewMode === 'time-machine' && (
               <div style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', marginBottom: '1rem' }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: '2rem' }}>
                   <div style={{ minWidth: '280px' }}>
@@ -577,7 +562,7 @@ export default function Dashboard() {
             )}
 
             <section className="toolbar">
-              {selectedRowIds.length > 0 && !isHistoricalState ? (
+              {selectedRowIds.length > 0 && !isHistorical ? (
                 <div className="category-filter-row selection-bar-active" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border-color)', padding: '0.25rem 0.5rem', borderRadius: '8px', animation: 'fade-in 0.15s ease', width: '100%', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     <span className="floating-selection-count" style={{ fontWeight: 700, fontSize: '0.75rem', color: 'var(--text-primary)' }}>
@@ -634,7 +619,7 @@ export default function Dashboard() {
                       <Trash2 className="w-3.5 h-3.5" />
                       Delete
                     </button>
-                    {viewModeState === 'completed' && (
+                    {viewMode === 'completed' && (
                       <button
                         onClick={handleBulkMarkPaid}
                         className="btn btn-outline"
@@ -678,7 +663,7 @@ export default function Dashboard() {
                     />
                   </div>
 
-                  {viewModeState !== 'completed' && (
+                  {viewMode !== 'completed' && (
                     <div className="category-filter-row">
                       <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginRight: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         Filter by Color:
@@ -722,7 +707,7 @@ export default function Dashboard() {
                 selectedRowIds={selectedRowIds}
                 sortBy={sortBy}
                 setSortBy={setSortBy}
-                isHistorical={isHistoricalState}
+                isHistorical={isHistorical}
                 handleRowClick={handleRowClick}
                 handleTouchStart={handleTouchStart}
                 handleTouchEnd={handleTouchEnd}
@@ -737,7 +722,7 @@ export default function Dashboard() {
                 handleMarkCompleted={handleMarkCompleted}
                 openCloneModal={openCloneModal}
                 openEditModal={openEditModal}
-                viewMode={viewModeState}
+                viewMode={viewMode}
                 handleMarkPaid={handleMarkPaid}
               />
             </section>
@@ -756,7 +741,7 @@ export default function Dashboard() {
                     setTimeout(() => setShowFontControls(false), 200);
                   }}
                   style={{ fontSize: `${notesFontSize}px` }}
-                  disabled={isHistoricalState}
+                  disabled={isHistorical}
                   id="notesTextarea"
                 />
                 

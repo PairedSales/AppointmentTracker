@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { autoFormatAddress, convertTo24Hour, convertTo12Hour, removeUnscheduled } from '../../lib/utils';
 import { Appraisal } from '../../types';
+import { AppDatePicker, AppTimePicker } from '../Pickers';
 
 interface EditAppraisalModalProps {
   isOpen: boolean;
@@ -206,45 +207,44 @@ export function EditAppraisalModal({ isOpen, onClose, onEdit, targetAppraisal }:
           <div className="form-row">
             <div className="form-group">
               <label>Inspection Date</label>
-              <input
-                type="date"
-                value={formInspectionDate}
-                onChange={(e) => setFormInspectionDate(e.target.value)}
-                className="form-input"
-              />
+              <div style={{ height: '38px' }}>
+                <AppDatePicker
+                  value={formInspectionDate}
+                  onChange={setFormInspectionDate}
+                />
+              </div>
             </div>
 
             <div className="form-group">
               <label>Time</label>
-              <input
-                type="time"
-                value={convertTo24Hour(formInspectionTime)}
-                onChange={(e) => setFormInspectionTime(convertTo12Hour(e.target.value))}
-                className="form-input"
-              />
+              <div style={{ height: '38px' }}>
+                <AppTimePicker
+                  value={formInspectionTime}
+                  onChange={setFormInspectionTime}
+                />
+              </div>
             </div>
             
             <div className="form-group">
               <label>Effective Date</label>
-              <input
-                type="date"
-                value={formEffectiveDate}
-                onChange={(e) => setFormEffectiveDate(e.target.value)}
-                className="form-input"
-              />
+              <div style={{ height: '38px' }}>
+                <AppDatePicker
+                  value={formEffectiveDate}
+                  onChange={setFormEffectiveDate}
+                />
+              </div>
             </div>
           </div>
 
           <div className="form-row">
             <div className="form-group">
               <label>Due Date</label>
-              <input
-                type="date"
-                required
-                value={formDueDate}
-                onChange={(e) => setFormDueDate(e.target.value)}
-                className="form-input"
-              />
+              <div style={{ height: '38px' }}>
+                <AppDatePicker
+                  value={formDueDate}
+                  onChange={setFormDueDate}
+                />
+              </div>
             </div>
 
             <div className="form-group">
@@ -394,12 +394,12 @@ export function EditAppraisalModal({ isOpen, onClose, onEdit, targetAppraisal }:
               </div>
               <div className="form-group" style={{ flex: 1 }}>
                 <label>Date</label>
-                <input
-                  type="date"
-                  value={newPaymentDate}
-                  onChange={(e) => setNewPaymentDate(e.target.value)}
-                  className="form-input"
-                />
+                <div style={{ height: '38px' }}>
+                  <AppDatePicker
+                    value={newPaymentDate}
+                    onChange={setNewPaymentDate}
+                  />
+                </div>
               </div>
               <button
                 type="button"

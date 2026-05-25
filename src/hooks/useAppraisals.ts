@@ -5,13 +5,11 @@ import { removeUnscheduled, convertTo24Hour } from '../lib/utils';
 
 export function useAppraisals(
   pushAction: (action: HistoryAction) => void,
-  clearSelection: () => void,
-  selectedRowIds: string[],
+  isHistorical: boolean,
   weeksInYear: number
 ) {
   const queryClient = useQueryClient();
   const [appraisals, setAppraisals] = useState<Appraisal[]>([]);
-  const [isHistorical, setIsHistorical] = useState(false);
   const [viewMode, setViewMode] = useState<'active' | 'completed' | 'time-machine' | 'accounting'>('active');
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -25,6 +23,15 @@ export function useAppraisals(
 
   const [sortBy, setSortBy] = useState<'due_date' | 'inspection' | 'none'>('none');
   const deferredSortBy = useDeferredValue(sortBy);
+
+  // Selection State
+  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+
+  const clearSelection = useCallback(() => {
+    setSelectedRowIds([]);
+    setLastSelectedId(null);
+  }, []);
 
   const YTD_BASELINE = 165360;
 
@@ -45,6 +52,8 @@ export function useAppraisals(
   });
 
   // Sync query data to local state for optimistic updates
+  // Note: This triggers a re-render when queryData changes, but it shouldn't cause a cascade
+  // if page.tsx stops using a duplicate viewModeState.
   useEffect(() => {
     if (queryData && !isHistorical) {
       setAppraisals(queryData);
@@ -77,18 +86,18 @@ export function useAppraisals(
         if (deferredSortBy === 'due_date') {
           if (!a.due_date) return 1;
           if (!b.due_date) return -1;
-          return a.due_date.localeCompare(b.due_date);
+          return a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : 0;
         }
         if (deferredSortBy === 'inspection') {
           if (!a.inspection_date) return 1;
           if (!b.inspection_date) return -1;
           
-          const dateCompare = a.inspection_date.localeCompare(b.inspection_date);
-          if (dateCompare !== 0) return dateCompare;
+          if (a.inspection_date < b.inspection_date) return -1;
+          if (a.inspection_date > b.inspection_date) return 1;
           
           const timeA = convertTo24Hour(a.inspection_time);
           const timeB = convertTo24Hour(b.inspection_time);
-          return timeA.localeCompare(timeB);
+          return timeA < timeB ? -1 : timeA > timeB ? 1 : 0;
         }
         return 0;
       });
@@ -100,6 +109,60 @@ export function useAppraisals(
   const activeFeeSum = filteredAppraisals.reduce((sum, item) => sum + item.fee, 0);
   const ytdFeeSum = YTD_BASELINE + activeFeeSum;
   const projectedFeeSum = activeFeeSum * weeksInYear;
+
+  const handleRowClick = useCallback((id: string, e: React.MouseEvent) => {
+    if (isHistorical) return;
+
+    const currentFilteredIds = filteredAppraisals.map(a => a.id);
+    
+    if (e.shiftKey) {
+      if (lastSelectedId && currentFilteredIds.includes(lastSelectedId)) {
+        const anchorIdx = currentFilteredIds.indexOf(lastSelectedId);
+        const clickedIdx = currentFilteredIds.indexOf(id);
+        
+        if (anchorIdx !== -1 && clickedIdx !== -1) {
+          const start = Math.min(anchorIdx, clickedIdx);
+          const end = Math.max(anchorIdx, clickedIdx);
+          const rangeIds = currentFilteredIds.slice(start, end + 1);
+          
+          if (e.ctrlKey || e.metaKey) {
+            setSelectedRowIds(prev => {
+              const unique = new Set([...prev, ...rangeIds]);
+              return Array.from(unique);
+            });
+          } else {
+            setSelectedRowIds(rangeIds);
+          }
+        }
+      } else {
+        if (e.ctrlKey || e.metaKey) {
+          setSelectedRowIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+        } else {
+          setSelectedRowIds([id]);
+        }
+        setLastSelectedId(id);
+      }
+    } else if (e.ctrlKey || e.metaKey) {
+      setSelectedRowIds(prev => {
+        if (prev.includes(id)) {
+          return prev.filter(x => x !== id);
+        } else {
+          return [...prev, id];
+        }
+      });
+      setLastSelectedId(id);
+    } else {
+      if (selectedRowIds.includes(id)) {
+        setSelectedRowIds(prev => prev.filter(x => x !== id));
+        if (lastSelectedId === id) {
+          setLastSelectedId(null);
+        }
+      } else {
+        setSelectedRowIds([id]);
+        setLastSelectedId(id);
+      }
+    }
+  }, [isHistorical, filteredAppraisals, lastSelectedId]);
 
   // We only manually fetch for time-machine or forced re-fetches
   const fetchAppraisals = useCallback(async (timestamp?: string, forceMode?: 'active' | 'completed' | 'time-machine') => {
@@ -408,7 +471,6 @@ export function useAppraisals(
     appraisals,
     setAppraisals: updateAppraisalsState,
     isLoading: isQueryLoading,
-    isHistorical, setIsHistorical,
     viewMode, setViewMode,
     searchQuery, setSearchQuery,
     cityFilter, setCityFilter,
@@ -426,6 +488,12 @@ export function useAppraisals(
     handleMarkInspected,
     handleMarkCompleted,
     handleMarkPaid,
-    handleBulkMarkPaid
+    handleBulkMarkPaid,
+    selectedRowIds,
+    setSelectedRowIds,
+    lastSelectedId,
+    setLastSelectedId,
+    clearSelection,
+    handleRowClick
   };
 }

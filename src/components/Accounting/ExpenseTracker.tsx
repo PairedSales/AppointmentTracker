@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
+import { AppDatePicker } from '../Pickers';
 
 export default function ExpenseTracker() {
   const [expenses, setExpenses] = useState<any[]>([]);
@@ -90,7 +91,12 @@ export default function ExpenseTracker() {
           </div>
           <div className="form-group" style={{ flex: 1, minWidth: '150px' }}>
             <label>Date</label>
-            <input type="date" required value={date} onChange={e => setDate(e.target.value)} className="form-input" />
+            <div style={{ height: '38px' }}>
+              <AppDatePicker
+                value={date}
+                onChange={setDate}
+              />
+            </div>
           </div>
           <div className="form-group" style={{ flex: 2, minWidth: '200px' }}>
             <label>Description</label>
