@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useDeferredValue, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Appraisal, HistoryAction } from '../types';
 import { removeUnscheduled, convertTo24Hour } from '../lib/utils';
 
@@ -8,30 +9,61 @@ export function useAppraisals(
   selectedRowIds: string[],
   weeksInYear: number
 ) {
+  const queryClient = useQueryClient();
   const [appraisals, setAppraisals] = useState<Appraisal[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isHistorical, setIsHistorical] = useState(false);
   const [viewMode, setViewMode] = useState<'active' | 'completed' | 'time-machine' | 'accounting'>('active');
 
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+
   const [cityFilter, setCityFilter] = useState('');
+  const deferredCityFilter = useDeferredValue(cityFilter);
+
   const [colorFilter, setColorFilter] = useState<string>('all');
+  const deferredColorFilter = useDeferredValue(colorFilter);
+
   const [sortBy, setSortBy] = useState<'due_date' | 'inspection' | 'none'>('none');
+  const deferredSortBy = useDeferredValue(sortBy);
 
   const YTD_BASELINE = 165360;
 
+  // React Query for fetching based on viewMode
+  const { data: queryData, isLoading: isQueryLoading } = useQuery({
+    queryKey: ['appraisals', viewMode],
+    queryFn: async () => {
+      let url = '/api/appraisals';
+      if (viewMode === 'completed') {
+         url = '/api/appraisals?status=COMPLETED,CANCELLED';
+      }
+      const res = await fetch(url);
+      const data = await res.json();
+      return data.appraisals || [];
+    },
+    enabled: !isHistorical && (viewMode === 'active' || viewMode === 'completed'),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Sync query data to local state for optimistic updates
+  useEffect(() => {
+    if (queryData && !isHistorical) {
+      setAppraisals(queryData);
+    }
+  }, [queryData, isHistorical, viewMode]);
+
   const filteredAppraisals = useMemo(() => {
-    return appraisals
+    const result = appraisals
       .filter(app => {
-        if (colorFilter !== 'all' && app.color_category !== colorFilter) {
+        if (deferredColorFilter !== 'all' && app.color_category !== deferredColorFilter) {
           return false;
         }
-        if (viewMode === 'completed' && cityFilter) {
-          if (!app.city || !app.city.toLowerCase().includes(cityFilter.toLowerCase())) {
+        if (viewMode === 'completed' && deferredCityFilter) {
+          if (!app.city || !app.city.toLowerCase().includes(deferredCityFilter.toLowerCase())) {
             return false;
           }
         }
-        const q = searchQuery.toLowerCase();
+        const q = deferredSearchQuery.toLowerCase();
+        if (!q) return true;
         return (
           app.address.toLowerCase().includes(q) ||
           (app.city || '').toLowerCase().includes(q) ||
@@ -42,12 +74,12 @@ export function useAppraisals(
         );
       })
       .sort((a, b) => {
-        if (sortBy === 'due_date') {
+        if (deferredSortBy === 'due_date') {
           if (!a.due_date) return 1;
           if (!b.due_date) return -1;
           return a.due_date.localeCompare(b.due_date);
         }
-        if (sortBy === 'inspection') {
+        if (deferredSortBy === 'inspection') {
           if (!a.inspection_date) return 1;
           if (!b.inspection_date) return -1;
           
@@ -60,40 +92,50 @@ export function useAppraisals(
         }
         return 0;
       });
-  }, [appraisals, colorFilter, cityFilter, searchQuery, sortBy, viewMode]);
+      
+    return result;
+  }, [appraisals, deferredColorFilter, deferredCityFilter, deferredSearchQuery, deferredSortBy, viewMode]);
 
   const activeCount = filteredAppraisals.length;
   const activeFeeSum = filteredAppraisals.reduce((sum, item) => sum + item.fee, 0);
   const ytdFeeSum = YTD_BASELINE + activeFeeSum;
   const projectedFeeSum = activeFeeSum * weeksInYear;
 
+  // We only manually fetch for time-machine or forced re-fetches
   const fetchAppraisals = useCallback(async (timestamp?: string, forceMode?: 'active' | 'completed' | 'time-machine') => {
-    setIsLoading(true);
     const mode = forceMode || viewMode;
-    try {
+    if (timestamp || mode === 'time-machine') {
       let url = '/api/appraisals';
       if (timestamp) {
          url = `/api/appraisals?timestamp=${encodeURIComponent(timestamp)}`;
-      } else if (mode === 'completed') {
-         url = '/api/appraisals?status=COMPLETED,CANCELLED';
-      } else if (mode === 'time-machine') {
-         if (!timestamp) {
-           setAppraisals([]);
-           setIsLoading(false);
-           return;
-         }
+      } else {
+         setAppraisals([]);
+         return;
       }
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data.appraisals) {
-        setAppraisals(data.appraisals);
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.appraisals) setAppraisals(data.appraisals);
+      } catch (err) {
+        console.error('Failed to fetch historical appraisals:', err);
       }
-    } catch (err) {
-      console.error('Failed to fetch appraisals:', err);
-    } finally {
-      setIsLoading(false);
+    } else {
+      // Force invalidate query for active/completed
+      queryClient.invalidateQueries({ queryKey: ['appraisals', mode] });
     }
-  }, [viewMode]);
+  }, [viewMode, queryClient]);
+
+  // Helper to update both local state and react-query cache
+  const updateAppraisalsState = useCallback((newAppraisals: Appraisal[] | ((prev: Appraisal[]) => Appraisal[])) => {
+    setAppraisals(prev => {
+      const updated = typeof newAppraisals === 'function' ? newAppraisals(prev) : newAppraisals;
+      // Sync back to query cache so background refetches don't wipe it out
+      if (!isHistorical && (viewMode === 'active' || viewMode === 'completed')) {
+        queryClient.setQueryData(['appraisals', viewMode], updated);
+      }
+      return updated;
+    });
+  }, [isHistorical, viewMode, queryClient]);
 
   const handlePaintRowsColor = useCallback(async (color: string) => {
     if (isHistorical || selectedRowIds.length === 0) return;
@@ -135,14 +177,14 @@ export function useAppraisals(
         beforeAppraisals
       });
       
-      setAppraisals(prev => prev.map(a => {
+      updateAppraisalsState(prev => prev.map(a => {
         const match = afterAppraisals.find(x => x.id === a.id);
         return match ? match : a;
       }));
     } catch (err) {
       console.error('Failed to paint selected rows:', err);
     }
-  }, [isHistorical, selectedRowIds, appraisals, pushAction]);
+  }, [isHistorical, selectedRowIds, appraisals, pushAction, updateAppraisalsState]);
 
   const handleDeleteAppraisal = useCallback(async (id: string) => {
     if (isHistorical) return;
@@ -210,12 +252,12 @@ export function useAppraisals(
           appraisals: [afterAppraisal],
           beforeAppraisals: [beforeAppraisal]
         });
-        setAppraisals(prev => prev.map(a => a.id === app.id ? afterAppraisal : a));
+        updateAppraisalsState(prev => prev.map(a => a.id === app.id ? afterAppraisal : a));
       }
     } catch (err) {
       console.error('Failed to mark inspected:', err);
     }
-  }, [isHistorical, pushAction]);
+  }, [isHistorical, pushAction, updateAppraisalsState]);
 
   const handleMarkCompleted = useCallback(async (app: Appraisal) => {
     if (isHistorical) return;
@@ -238,12 +280,12 @@ export function useAppraisals(
           appraisals: [afterAppraisal],
           beforeAppraisals: [beforeAppraisal]
         });
-        setAppraisals(prev => prev.map(a => a.id === app.id ? afterAppraisal : a));
+        updateAppraisalsState(prev => prev.map(a => a.id === app.id ? afterAppraisal : a));
       }
     } catch (err) {
       console.error('Failed to mark completed:', err);
     }
-  }, [isHistorical, pushAction]);
+  }, [isHistorical, pushAction, updateAppraisalsState]);
 
   const handleMarkPaid = useCallback(async (app: Appraisal) => {
     if (isHistorical) return;
@@ -286,12 +328,12 @@ export function useAppraisals(
           appraisals: [afterAppraisal],
           beforeAppraisals: [beforeAppraisal]
         });
-        setAppraisals(prev => prev.map(a => a.id === app.id ? afterAppraisal : a));
+        updateAppraisalsState(prev => prev.map(a => a.id === app.id ? afterAppraisal : a));
       }
     } catch (err) {
       console.error('Failed to mark paid:', err);
     }
-  }, [isHistorical, pushAction]);
+  }, [isHistorical, pushAction, updateAppraisalsState]);
 
   const handleBulkMarkPaid = useCallback(async () => {
     if (isHistorical || selectedRowIds.length === 0) return;
@@ -351,7 +393,7 @@ export function useAppraisals(
         beforeAppraisals
       });
       
-      setAppraisals(prev => prev.map(a => {
+      updateAppraisalsState(prev => prev.map(a => {
         const match = afterAppraisals.find(x => x.id === a.id);
         return match ? match : a;
       }));
@@ -360,11 +402,12 @@ export function useAppraisals(
     } catch (err) {
       console.error('Failed to bulk mark paid:', err);
     }
-  }, [isHistorical, selectedRowIds, appraisals, pushAction, clearSelection]);
+  }, [isHistorical, selectedRowIds, appraisals, pushAction, clearSelection, updateAppraisalsState]);
 
   return {
-    appraisals, setAppraisals,
-    isLoading, setIsLoading,
+    appraisals,
+    setAppraisals: updateAppraisalsState,
+    isLoading: isQueryLoading,
     isHistorical, setIsHistorical,
     viewMode, setViewMode,
     searchQuery, setSearchQuery,

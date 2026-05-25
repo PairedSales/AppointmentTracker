@@ -9,6 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.100.14",
+    "@tanstack/react-virtual": "^3.13.26",
     "@types/rbush": "^4.0.0",
     "better-sqlite3": "^12.10.0",
     "dotenv": "^17.4.2",

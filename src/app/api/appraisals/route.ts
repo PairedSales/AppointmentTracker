@@ -3,7 +3,7 @@ import { OrderService } from '@/services/OrderService';
 import { db } from '@/db';
 import { orderHistory } from '@/db/schema';
 import { geocodeAddress } from '@/lib/geocode';
-import { eq, desc, and, isNull, lte, gt, like } from 'drizzle-orm';
+import { eq, desc, and, isNull, lte, gt, like, or } from 'drizzle-orm';
 
 // GET all appraisals (supports time-travel via 'timestamp' or single audit log via 'history' & 'id' or day changes via 'date')
 export async function GET(request: Request) {
@@ -59,18 +59,17 @@ export async function GET(request: Request) {
     }
 
     if (timestamp) {
+      console.time('API: TimeMachine query');
       const dateStr = new Date(timestamp).toISOString();
-      const historicalRecords = await db.select()
+      
+      const filtered = await db.select()
         .from(orderHistory)
         .where(
           and(
             lte(orderHistory.validFrom, dateStr),
-            // valid_to is either null or > timestamp
-            // we will fetch all matching validFrom and filter validTo in memory if Drizzle OR condition is verbose
+            or(isNull(orderHistory.validTo), gt(orderHistory.validTo, dateStr))
           )
         );
-      
-      const filtered = historicalRecords.filter(h => !h.validTo || h.validTo > dateStr);
       
       const mapped = filtered.map(h => ({
         id: h.orderId,
@@ -92,9 +91,13 @@ export async function GET(request: Request) {
         payments: h.payments
       }));
 
+      console.timeEnd('API: TimeMachine query');
+      console.log(`TimeMachine query returned ${mapped.length} rows for timestamp ${dateStr}`);
       return NextResponse.json({ appraisals: mapped, isHistorical: true });
     } else {
+      console.time('API: getOrders');
       const appraisals = await OrderService.getOrders(statusParam || undefined);
+      console.timeEnd('API: getOrders');
       return NextResponse.json({ appraisals, isHistorical: false });
     }
   } catch (error: any) {

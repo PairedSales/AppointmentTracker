@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Trash2, Search, Sliders, Info, X } from 'lucide-react';
 import dynamic from 'next/dynamic';
 
@@ -60,7 +60,7 @@ export default function Dashboard() {
 
   const {
     appraisals, setAppraisals,
-    isLoading: isLoadingState, setIsLoading: setIsLoadingState,
+    isLoading: isLoadingState,
     isHistorical, setIsHistorical,
     viewMode, setViewMode,
     searchQuery, setSearchQuery,
@@ -287,7 +287,7 @@ export default function Dashboard() {
   };
 
   // Touch event handlers for mobile
-  const handleTouchStart = (address: string) => {
+  const handleTouchStart = useCallback((address: string) => {
     if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
     touchActiveRef.current = true;
     touchTimeoutRef.current = setTimeout(() => {
@@ -296,23 +296,23 @@ export default function Dashboard() {
       }
       touchTimeoutRef.current = null;
     }, 800);
-  };
+  }, []);
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = useCallback(() => {
     touchActiveRef.current = false;
     if (touchTimeoutRef.current) {
       clearTimeout(touchTimeoutRef.current);
       touchTimeoutRef.current = null;
     }
-  };
+  }, []);
 
-  const handleTouchMove = () => {
+  const handleTouchMove = useCallback(() => {
     touchActiveRef.current = false;
     if (touchTimeoutRef.current) {
       clearTimeout(touchTimeoutRef.current);
       touchTimeoutRef.current = null;
     }
-  };
+  }, []);
 
   // Effects
   useEffect(() => {

@@ -73,21 +73,21 @@ export function DashboardHeader({
           </button>
           <button
             onClick={() => { setViewMode('completed'); setTravelDate(''); setDailyMetrics(null); if(isHistorical) handleExitTimeTravel(); }}
-            className={`btn ${viewMode === 'completed' && !isHistorical ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn hide-on-mobile ${viewMode === 'completed' && !isHistorical ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '0.4rem 1rem', borderRadius: '6px', fontSize: '0.8rem', border: viewMode === 'completed' && !isHistorical ? '' : 'none', boxShadow: viewMode === 'completed' && !isHistorical ? '' : 'none' }}
           >
             Completed Orders
           </button>
           <button
             onClick={() => { setViewMode('accounting'); setTravelDate(''); setDailyMetrics(null); if(isHistorical) handleExitTimeTravel(); }}
-            className={`btn ${viewMode === 'accounting' && !isHistorical ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn hide-on-mobile ${viewMode === 'accounting' && !isHistorical ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '0.4rem 1rem', borderRadius: '6px', fontSize: '0.8rem', border: viewMode === 'accounting' && !isHistorical ? '' : 'none', boxShadow: viewMode === 'accounting' && !isHistorical ? '' : 'none' }}
           >
             Accounting
           </button>
           <button
             onClick={() => { setViewMode('time-machine'); setTravelDate(''); setDailyMetrics(null); if(isHistorical) handleExitTimeTravel(); }}
-            className={`btn ${viewMode === 'time-machine' || isHistorical ? 'btn-primary' : 'btn-secondary'}`}
+            className={`btn hide-on-mobile ${viewMode === 'time-machine' || isHistorical ? 'btn-primary' : 'btn-secondary'}`}
             style={{ padding: '0.4rem 1rem', borderRadius: '6px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem', border: viewMode === 'time-machine' || isHistorical ? '' : 'none', boxShadow: viewMode === 'time-machine' || isHistorical ? '' : 'none' }}
           >
             <Clock className="w-3.5 h-3.5" /> Time Machine
@@ -95,7 +95,7 @@ export function DashboardHeader({
         </div>
 
         {(viewMode === 'time-machine' || isHistorical) && (
-          <div style={{ position: 'relative' }}>
+          <div className="hide-on-mobile" style={{ position: 'relative' }}>
             <button 
               onClick={() => setIsTimeTravelOpen(!isTimeTravelOpen)}
               className={`btn ${isHistorical ? 'btn-primary' : 'btn-secondary'}`}

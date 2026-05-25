@@ -1,11 +1,16 @@
 import { db } from '../db';
 import { orders, clients, auditLogs, invoices, payments, orderHistory } from '../db/schema';
-import { eq, desc, inArray, isNull, and } from 'drizzle-orm';
+import { eq, desc, inArray, isNull, and, sql } from 'drizzle-orm';
 import crypto from 'crypto';
 import { CreateOrderDTO, UpdateOrderDTO } from '../types';
 
 export class OrderService {
   static async getOrders(statusFilter?: string) {
+    const amountDueQuery = sql<number>`COALESCE((SELECT SUM(amount) FROM invoices WHERE order_id = ${orders.id}), 0)`.mapWith(Number);
+    const amountPaidQuery = sql<number>`COALESCE((SELECT SUM(p.amount) FROM payments p JOIN invoices i ON p.invoice_id = i.id WHERE i.order_id = ${orders.id}), 0)`.mapWith(Number);
+    const paidDateQuery = sql<string>`(SELECT MAX(p.payment_date) FROM payments p JOIN invoices i ON p.invoice_id = i.id WHERE i.order_id = ${orders.id})`;
+    const paymentsListQuery = sql<string>`(SELECT group_concat(p.method, ', ') FROM payments p JOIN invoices i ON p.invoice_id = i.id WHERE i.order_id = ${orders.id} AND p.method IS NOT NULL)`;
+
     let query = db.select({
       id: orders.id,
       address: orders.address,
@@ -31,6 +36,10 @@ export class OrderService {
       client: clients.name,
       lender: orders.lender,
       createdAt: orders.createdAt,
+      amount_due: amountDueQuery,
+      amount_paid: amountPaidQuery,
+      paid_date: paidDateQuery,
+      payments: paymentsListQuery,
     })
     .from(orders)
     .leftJoin(clients, eq(orders.clientId, clients.id));
@@ -42,36 +51,13 @@ export class OrderService {
       query = query.where(inArray(orders.status, ['CREATED', 'INSPECTED'])) as any;
     }
 
+    const startDb = performance.now();
     const results = await query;
+    const dbTime = performance.now() - startDb;
     
-    const allInvoices = await db.select().from(invoices);
-    const allPayments = await db.select().from(payments);
-
-    return results.map(r => {
-      const orderInvoices = allInvoices.filter(i => i.orderId === r.id);
-      let amountDue = 0;
-      let amountPaid = 0;
-      let paidDate = null;
-      let paymentMethods: string[] = [];
-
-      for (const inv of orderInvoices) {
-        amountDue += inv.amount;
-        const invPayments = allPayments.filter(p => p.invoiceId === inv.id);
-        for (const p of invPayments) {
-          amountPaid += p.amount;
-          paidDate = p.paymentDate;
-          if (p.method) paymentMethods.push(p.method);
-        }
-      }
-
-      return {
-        ...r,
-        amount_due: amountDue,
-        amount_paid: amountPaid,
-        paid_date: paidDate,
-        payments: paymentMethods.length > 0 ? paymentMethods.join(', ') : null,
-      };
-    });
+    console.log(`OrderService.getOrders fetched ${results.length} rows in ${dbTime.toFixed(2)}ms`);
+    
+    return results;
   }
 
   static async logHistory(orderId: string, actionType: 'INSERT' | 'UPDATE' | 'DELETE') {
