@@ -105,7 +105,7 @@ export const convertTo12Hour = (timeStr24: string): string => {
   hours = hours % 12;
   if (hours === 0) hours = 12;
   
-  return `${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
+  return `${hours}:${minutes} ${ampm}`;
 };
 
 // Remove "unscheduled" (case-insensitive) from a status string

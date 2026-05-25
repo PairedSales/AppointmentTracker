@@ -4,40 +4,37 @@ export interface Coordinates {
 }
 
 /**
- * Geocodes an address string using the open Nominatim (OpenStreetMap) API.
- * Uses a basic fetch with a strict User-Agent per Nominatim requirements.
- * Note: Nominatim limits requests to 1 per second.
+ * Geocodes an address string using the US Census Bureau Geocoder API.
+ * Free, no API key required, and specifically optimized for US addresses.
  */
 export async function geocodeAddress(address: string): Promise<Coordinates | null> {
   if (!address) return null;
 
   try {
-    // Basic formatting to help Nominatim (removes unit numbers etc. if complex, but simple addresses work best)
-    // We append USA to increase accuracy if missing
-    const query = encodeURIComponent(address + (address.toLowerCase().includes('il') ? '' : ', IL, USA'));
+    // The Census Geocoder performs best when provided with at least the city and state.
+    const query = encodeURIComponent(address + (address.toLowerCase().includes('il') ? '' : ', IL'));
     
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`;
+    const url = `https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=${query}&benchmark=Public_AR_Current&format=json`;
     
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        // Nominatim requires a user-agent to identify the application
-        'User-Agent': 'AppraisalTracker/1.0 (Local Application)',
         'Accept': 'application/json'
       }
     });
 
     if (!response.ok) {
-      console.error(`Geocoding failed for ${address}: HTTP ${response.status}`);
+      console.error(`Census Geocoding failed for ${address}: HTTP ${response.status}`);
       return null;
     }
 
     const data = await response.json();
     
-    if (data && data.length > 0) {
+    if (data?.result?.addressMatches && data.result.addressMatches.length > 0) {
+      const coords = data.result.addressMatches[0].coordinates;
       return {
-        lat: parseFloat(data[0].lat),
-        lng: parseFloat(data[0].lon) // Nominatim returns 'lon' instead of 'lng'
+        lat: coords.y,
+        lng: coords.x
       };
     }
     

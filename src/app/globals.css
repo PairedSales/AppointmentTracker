@@ -846,7 +846,7 @@ input[type="number"] {
 /* Layout section: Middle metrics & Notes */
 .middle-section {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: 1fr 300px;
   gap: 1.25rem;
 }
 
@@ -1548,3 +1548,248 @@ body.readonly-mode .editable-cell-input-container {
 body.readonly-mode .notes-textarea-plain {
   user-select: none;
 }
+
+.color-opt-black { background-color: var(--cat-black-border); color: #fff; }
+.color-opt-blue { background-color: var(--cat-blue-border); color: #fff; }
+.color-opt-purple { background-color: var(--cat-purple-border); color: #fff; }
+.color-opt-brown { background-color: var(--cat-brown-border); color: #fff; }
+.color-opt-gold { background-color: var(--cat-gold-border); color: #fff; }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  border-top: 1px solid var(--border-color);
+  padding-top: 0.85rem;
+}
+
+/* Floating Notion-style bulk editing toolbar (centers at bottom) */
+.floating-action-bar {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  animation: float-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.floating-action-bar-content {
+  background-color: #0b0b0e;
+  border: 1px solid var(--border-hover);
+  padding: 0.6rem 1.25rem;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.75), 0 0 1px 1px rgba(255, 255, 255, 0.1) inset;
+}
+
+@keyframes float-up {
+  from { transform: translate(-50%, 20px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+
+.floating-selection-count {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  border-right: 1px solid var(--border-color);
+  padding-right: 0.85rem;
+}
+
+/* Mobile IP and link styles */
+.tailscale-logo { color: #ff5f00; }
+.tailscale-ip-list {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.5rem;
+}
+.tailscale-ip-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tailscale-ip-label {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.tailscale-ip-val {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  background-color: rgba(255, 255, 255, 0.05);
+  padding: 0.05rem 0.2rem;
+  border-radius: 3px;
+}
+.tailscale-qr-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0.4rem;
+  background-color: white;
+  border-radius: 6px;
+  width: 120px;
+  height: 120px;
+  margin: 0.25rem auto 0 auto;
+}
+
+/* Skeleton Loading styles */
+.skeleton-row td {
+  padding: 0.85rem 1rem !important;
+}
+
+.skeleton-bar {
+  background: linear-gradient(90deg, var(--border-color) 25%, var(--bg-tertiary) 50%, var(--border-color) 75%);
+  background-size: 200% 100%;
+  animation: loading-pulse 1.5s infinite;
+  height: 14px;
+  border-radius: 3px;
+  width: 80%;
+}
+
+.skeleton-bar.short { width: 40%; }
+.skeleton-bar.medium { width: 60%; }
+
+@keyframes loading-pulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Custom Calendar Picker styling */
+.custom-calendar-popover {
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  width: 100%;
+}
+
+.calendar-day-btn {
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.calendar-day-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Mobile viewport styles: only show the main table, hide headers, toolbars, and details cards */
+@media (max-width: 768px) {
+  .app-header {
+    display: none !important;
+  }
+  .toolbar {
+    display: none !important;
+  }
+  .historical-banner {
+    display: none !important;
+  }
+  .middle-section {
+    display: none !important;
+  }
+  .dashboard-container {
+    padding: 0.5rem;
+    gap: 0;
+  }
+}
+
+/* Custom Sorting Header and Date Stack Styles */
+.appraisal-table th[onClick] {
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.appraisal-table th[onClick]:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary) !important;
+}
+
+.sorted-header {
+  color: var(--primary-accent) !important;
+}
+
+.date-cell-wrapper-stacked {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.date-weekday {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.date-sub {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+/* Readonly Mode */
+body.readonly-mode button,
+body.readonly-mode input,
+body.readonly-mode select,
+body.readonly-mode textarea,
+body.readonly-mode [role='button'],
+body.readonly-mode .lucide-pencil,
+body.readonly-mode .lucide-trash,
+body.readonly-mode .lucide-plus,
+body.readonly-mode .action-icon-btn,
+body.readonly-mode .editable-cell-input-container {
+  pointer-events: none !important;
+  opacity: 0.6 !important;
+}
+
+body.readonly-mode .notes-textarea-plain {
+  user-select: none;
+}
+
+/* Custom Map Markers & Tooltips */
+.custom-leaflet-marker {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  filter: drop-shadow(0px 4px 6px rgba(0,0,0,0.4));
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.custom-leaflet-marker:hover {
+  transform: scale(1.1) translateY(-2px);
+  filter: drop-shadow(0px 8px 12px rgba(0,0,0,0.6));
+  z-index: 1000 !important;
+}
+
+.map-label-tooltip {
+  background-color: rgba(24, 24, 27, 0.9) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 6px !important;
+  font-size: 0.75rem !important;
+  font-weight: 600 !important;
+  padding: 4px 8px !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+  backdrop-filter: blur(4px);
+  white-space: nowrap;
+}
+
+.map-label-tooltip.home-label {
+  background-color: rgba(30, 41, 59, 0.95) !important; 
+  border-color: rgba(245, 158, 11, 0.6) !important;
+  color: #fff !important;
+}
+
+/* Fix leaflet tooltip triangle */
+.leaflet-tooltip-left::before { border-left-color: var(--border-color) !important; }
+.leaflet-tooltip-right::before { border-right-color: var(--border-color) !important; }
+.leaflet-tooltip-top::before { border-top-color: var(--border-color) !important; }
+.leaflet-tooltip-bottom::before { border-bottom-color: var(--border-color) !important; }
+
+/* Dynamic hide based on zoom layer class */
+.hide-tooltips .map-label-tooltip { display: none !important; }

@@ -1,19 +1,22 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
+import { db } from '@/db';
+import { settings } from '@/db/schema';
 import os from 'os';
+import { eq } from 'drizzle-orm';
 
 // GET settings and system network info
 export async function GET() {
   try {
-    const db = await getDb();
+    const allSettings = await db.select().from(settings);
+    const getSetting = (k: string) => allSettings.find(s => s.key === k)?.value;
 
-    // Fetch notes and font size
-    const notesRow = await db.get('SELECT value FROM settings WHERE key = ?', 'notes');
-    const fontSizeRow = await db.get('SELECT value FROM settings WHERE key = ?', 'notes_font_size');
-    const weeksInYearRow = await db.get('SELECT value FROM settings WHERE key = ?', 'weeks_in_year');
+    const notes = getSetting('notes');
+    const fontSize = getSetting('notes_font_size');
+    const weeksInYear = getSetting('weeks_in_year');
+    const homeAddress = getSetting('home_address');
+    const homeLat = getSetting('home_lat');
+    const homeLng = getSetting('home_lng');
 
-    // Get system network interfaces
     const hostname = os.hostname();
     const networkInterfaces = os.networkInterfaces();
     const ips: Array<{ name: string; address: string; isTailscale: boolean }> = [];
@@ -21,10 +24,8 @@ export async function GET() {
     for (const [name, interfaces] of Object.entries(networkInterfaces)) {
       if (!interfaces) continue;
       for (const iface of interfaces) {
-        // We only care about IPv4 and non-loopback addresses
         if (iface.family === 'IPv4' && !iface.internal) {
           const address = iface.address;
-          // Tailscale IPs always fall within the 100.64.0.0/10 block (100.64.x.y to 100.127.x.y)
           const isTailscale =
             address.startsWith('100.') &&
             (() => {
@@ -32,7 +33,6 @@ export async function GET() {
               return secondOctet >= 64 && secondOctet <= 127;
             })();
 
-          // Also check by interface name (often contains tailscale)
           const isTailscaleName = name.toLowerCase().includes('tailscale') || name.toLowerCase().includes('zt');
 
           ips.push({
@@ -45,9 +45,12 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      notes: notesRow ? notesRow.value : '',
-      notes_font_size: fontSizeRow ? Number(fontSizeRow.value) : 16,
-      weeks_in_year: weeksInYearRow ? Number(weeksInYearRow.value) : 52,
+      notes: notes !== undefined ? notes : '',
+      notes_font_size: fontSize !== undefined ? Number(fontSize) : 16,
+      weeks_in_year: weeksInYear !== undefined ? Number(weeksInYear) : 52,
+      home_address: homeAddress !== undefined ? homeAddress : '1724 Locust Pl Schaumburg, IL 60173',
+      home_lat: homeLat !== undefined ? Number(homeLat) : 42.0494,
+      home_lng: homeLng !== undefined ? Number(homeLng) : -88.0436,
       hostname,
       ips,
     });
@@ -60,33 +63,21 @@ export async function GET() {
 // POST update settings
 export async function POST(request: Request) {
   try {
-    const db = await getDb();
     const body = await request.json();
-    const { notes, notes_font_size, weeks_in_year } = body;
+    const { notes, notes_font_size, weeks_in_year, home_address, home_lat, home_lng } = body;
 
-    if (notes !== undefined) {
-      await db.run(
-        `INSERT INTO settings (key, value) VALUES ('notes', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-        notes
-      );
-    }
+    const upsertSetting = async (key: string, value: string) => {
+      await db.insert(settings)
+        .values({ key, value })
+        .onConflictDoUpdate({ target: settings.key, set: { value } });
+    };
 
-    if (notes_font_size !== undefined) {
-      await db.run(
-        `INSERT INTO settings (key, value) VALUES ('notes_font_size', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-        String(notes_font_size)
-      );
-    }
-
-    if (weeks_in_year !== undefined) {
-      await db.run(
-        `INSERT INTO settings (key, value) VALUES ('weeks_in_year', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-        String(weeks_in_year)
-      );
-    }
+    if (notes !== undefined) await upsertSetting('notes', String(notes));
+    if (notes_font_size !== undefined) await upsertSetting('notes_font_size', String(notes_font_size));
+    if (weeks_in_year !== undefined) await upsertSetting('weeks_in_year', String(weeks_in_year));
+    if (home_address !== undefined) await upsertSetting('home_address', String(home_address));
+    if (home_lat !== undefined) await upsertSetting('home_lat', String(home_lat));
+    if (home_lng !== undefined) await upsertSetting('home_lng', String(home_lng));
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

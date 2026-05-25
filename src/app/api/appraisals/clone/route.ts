@@ -1,6 +1,5 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from 'next/server';
-import { getDb, logHistory } from '@/lib/db';
+import { OrderService } from '@/services/OrderService';
 import crypto from 'crypto';
 
 const autoFormatAddress = (addressStr: string): string => {
@@ -69,7 +68,6 @@ const autoFormatAddress = (addressStr: string): string => {
 
 export async function POST(request: Request) {
   try {
-    const db = await getDb();
     const body = await request.json();
     const { id, newAddress, newDueDate } = body;
 
@@ -80,8 +78,7 @@ export async function POST(request: Request) {
       );
     }
 
-    // Retrieve source appraisal
-    const source = await db.get('SELECT * FROM appraisals WHERE id = ?', id);
+    const source = await OrderService.getOrderById(id);
     if (!source) {
       return NextResponse.json({ error: 'Source appraisal not found' }, { status: 404 });
     }
@@ -97,29 +94,30 @@ export async function POST(request: Request) {
       finalStats = source.stats || '';
     }
 
-    // Generate new UUID for the cloned appraisal
     const newId = crypto.randomUUID();
 
-    // Insert cloned appraisal
-    await db.run(
-      `INSERT INTO appraisals (id, address, type, inspection_date, inspection_time, due_date, stats, client, fee, color_category)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      newId,
-      formattedAddress,
-      source.type,
-      '', // Blank inspection date for new clone
-      '', // Blank inspection time for new clone
-      newDueDate,
-      finalStats,
-      source.client,
-      source.fee,
-      finalColor
-    );
+    const created = await OrderService.createOrder({
+      id: newId,
+      address: formattedAddress,
+      city: source.city,
+      type: source.type,
+      inspection_date: '',
+      inspection_time: '',
+      due_date: newDueDate,
+      stats: finalStats,
+      client: source.client || 'Unknown', // legacy prop passed to createOrder
+      fee: source.fee,
+      color_category: finalColor,
+      lender_order_number: '',
+      client_order_number: '',
+      appraised_value: null,
+      effective_date: null,
+      fha_case_number: '',
+      sale_price: null,
+      contact_name: source.contact_name,
+      contact_phone: source.contact_phone
+    });
 
-    // Write history
-    await logHistory(db, newId, 'INSERT');
-
-    const created = await db.get('SELECT * FROM appraisals WHERE id = ?', newId);
     return NextResponse.json(created);
   } catch (error: any) {
     console.error('API POST clone appraisal error:', error);
