@@ -241,7 +241,7 @@ export default function AppraisalTable({
                     ) : (
                       app.inspection_time ? (
                         <div className="date-cell-wrapper-stacked" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center' }}>
-                          <span>{app.inspection_time.replace(/^0/, '')}</span>
+                          <span>{convertTo12Hour(app.inspection_time)}</span>
                         </div>
                       ) : (
                         <span style={{ color: 'var(--text-muted)' }}>xx</span>
