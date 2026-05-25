@@ -66,7 +66,7 @@ function AutoFitBounds({ appraisals, homeLat, homeLng }: { appraisals: Appraisal
     
     if (boundsPoints.length > 0) {
       const bounds = L.latLngBounds(boundsPoints);
-      map.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 });
+      map.fitBounds(bounds, { padding: [80, 80], maxZoom: 15, animate: false });
     }
   }, [appraisals, map, homeLat, homeLng]);
 
@@ -78,8 +78,25 @@ function AutoFitBounds({ appraisals, homeLat, homeLng }: { appraisals: Appraisal
 export default function MapOverlay({ isOpen, onClose, appraisals, homeAddress, homeLat, homeLng }: MapOverlayProps) {
   if (!isOpen) return null;
 
-  const validAppraisals = appraisals.filter(a => a.lat && a.lng);
-  const unmappedAppraisals = appraisals.filter(a => !a.lat || !a.lng);
+  const addressCoords = new Map<string, {lat: number, lng: number}>();
+  appraisals.forEach(a => {
+    if (a.lat && a.lng) {
+      addressCoords.set(a.address.toLowerCase().trim(), { lat: a.lat, lng: a.lng });
+    }
+  });
+
+  const enhancedAppraisals = appraisals.map(a => {
+    if (a.lat && a.lng) return a;
+    const coords = addressCoords.get(a.address.toLowerCase().trim());
+    if (coords) return { ...a, lat: coords.lat, lng: coords.lng };
+    return a;
+  });
+
+  const validAppraisals = enhancedAppraisals.filter(a => a.lat && a.lng);
+  
+  // Deduplicate unmapped addresses so we don't show the same address multiple times
+  const unmappedAppraisals = enhancedAppraisals.filter(a => !a.lat || !a.lng);
+  const uniqueUnmappedAddresses = Array.from(new Set(unmappedAppraisals.map(a => a.address)));
 
   const handleRouteClick = (destAddress: string) => {
     if (!homeAddress) return;
@@ -96,9 +113,9 @@ export default function MapOverlay({ isOpen, onClose, appraisals, homeAddress, h
       >
         <div className="modal-header" style={{ borderBottom: 'none', paddingBottom: '0.25rem' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-            {unmappedAppraisals.length > 0 ? (
+            {uniqueUnmappedAddresses.length > 0 ? (
               <h2 style={{ fontSize: '1rem', color: 'var(--warning)', fontWeight: 600, lineHeight: 1.4 }}>
-                Could not map: {unmappedAppraisals.map(a => a.address).join(' | ')}
+                Could not map: {uniqueUnmappedAddresses.join(' | ')}
               </h2>
             ) : (
               <h2 style={{ fontSize: '1.25rem' }}>Map View</h2>

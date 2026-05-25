@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sliders, CheckSquare, CheckCircle, Copy, Edit3 } from 'lucide-react';
+import { Sliders, CheckSquare, CheckCircle, Copy, Edit3, DollarSign } from 'lucide-react';
 import { Appraisal } from '../types';
 import {
   getDueDateBadge,
@@ -121,7 +121,7 @@ export default function AppraisalTable({
               return (
                 <tr 
                   key={app.id}
-                  className={`appraisal-row row-cat-${app.color_category} ${selectedRowIds.includes(app.id) ? 'selected-row' : ''}`}
+                  className={`appraisal-row ${viewMode !== 'completed' ? `row-cat-${app.color_category}` : ''} ${selectedRowIds.includes(app.id) ? 'selected-row' : ''}`}
                   onClick={(e) => handleRowClick(app.id, e)}
                   onTouchStart={() => handleTouchStart(app.address)}
                   onTouchEnd={handleTouchEnd}
@@ -416,39 +416,52 @@ export default function AppraisalTable({
 
                   <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                     <div className="row-actions">
-                      <button
-                        onClick={() => handleMarkInspected(app)}
-                        disabled={isHistorical || (app.stats || '').toLowerCase().includes('unscheduled')}
-                        title={(app.stats || '').toLowerCase().includes('unscheduled') ? "Cannot mark unscheduled appraisal as inspected" : "Mark Inspected"}
-                        className="action-icon-btn check-inspected"
-                        style={{ opacity: (app.stats || '').toLowerCase().includes('unscheduled') ? 0.3 : 1 }}
-                      >
-                        <CheckSquare className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleMarkCompleted(app)}
-                        disabled={isHistorical}
-                        title="Mark Completed / Finished"
-                        className="action-icon-btn complete"
-                      >
-                        <CheckCircle className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => openCloneModal(app)}
-                        disabled={isHistorical}
-                        title="Copy / Clone similar appraisal"
-                        className="action-icon-btn"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => openEditModal(app)}
-                        disabled={isHistorical}
-                        title="Edit full appraisal details"
-                        className="action-icon-btn"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
+                      {viewMode === 'completed' ? (
+                        <button
+                          onClick={() => handleMarkPaid(app)}
+                          disabled={isHistorical}
+                          title="Mark Paid"
+                          className="action-icon-btn"
+                        >
+                          <DollarSign className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleMarkInspected(app)}
+                            disabled={isHistorical || (app.stats || '').toLowerCase().includes('unscheduled')}
+                            title={(app.stats || '').toLowerCase().includes('unscheduled') ? "Cannot mark unscheduled appraisal as inspected" : "Mark Inspected"}
+                            className="action-icon-btn check-inspected"
+                            style={{ opacity: (app.stats || '').toLowerCase().includes('unscheduled') ? 0.3 : 1 }}
+                          >
+                            <CheckSquare className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleMarkCompleted(app)}
+                            disabled={isHistorical}
+                            title="Mark Completed / Finished"
+                            className="action-icon-btn complete"
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => openCloneModal(app)}
+                            disabled={isHistorical}
+                            title="Copy / Clone similar appraisal"
+                            className="action-icon-btn"
+                          >
+                            <Copy className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => openEditModal(app)}
+                            disabled={isHistorical}
+                            title="Edit full appraisal details"
+                            className="action-icon-btn"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

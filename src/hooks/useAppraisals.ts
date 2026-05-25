@@ -37,6 +37,7 @@ export function useAppraisals(
           (app.city || '').toLowerCase().includes(q) ||
           app.type.toLowerCase().includes(q) ||
           (app.client || '').toLowerCase().includes(q) ||
+          (app.lender || '').toLowerCase().includes(q) ||
           (app.stats || '').toLowerCase().includes(q)
         );
       })

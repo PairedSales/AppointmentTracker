@@ -666,11 +666,11 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <>
-                  <div className="search-input-wrapper">
+                  <div className="search-input-wrapper" style={{ flexGrow: 1, minWidth: '300px' }}>
                     <Search className="search-icon w-4 h-4" />
                     <input
                       type="text"
-                      placeholder="Search..."
+                      placeholder="Search Address, City, Client, Lender, Type..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="search-input"
@@ -678,50 +678,39 @@ export default function Dashboard() {
                     />
                   </div>
 
-                  {viewModeState === 'completed' && (
-                    <div className="search-input-wrapper">
-                      <Search className="search-icon w-4 h-4" />
-                      <input
-                        type="text"
-                        placeholder="Filter by City..."
-                        value={cityFilter}
-                        onChange={(e) => setCityFilter(e.target.value)}
-                        className="search-input"
-                      />
+                  {viewModeState !== 'completed' && (
+                    <div className="category-filter-row">
+                      <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginRight: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        Filter by Color:
+                      </span>
+                      <button
+                        onClick={() => setColorFilter('all')}
+                        className={`btn btn-secondary ${colorFilter === 'all' ? 'active' : ''}`}
+                        style={{ padding: '0.35rem 0.7rem', fontSize: '0.75rem', border: colorFilter === 'all' ? '1px solid var(--text-primary)' : '1px solid var(--border-color)' }}
+                      >
+                        All
+                      </button>
+                      {['black', 'blue', 'purple', 'brown', 'gold'].map(color => (
+                        <button
+                          key={color}
+                          onClick={() => setColorFilter(color)}
+                          className={`btn btn-secondary`}
+                          style={{
+                            padding: '0.35rem 0.7rem',
+                            fontSize: '0.75rem',
+                            textTransform: 'capitalize',
+                            backgroundColor: colorFilter === color ? `var(--cat-${color}-border)` : `var(--cat-${color}-bg)`,
+                            color: colorFilter === color ? '#000' : `var(--cat-${color}-border)`,
+                            borderColor: colorFilter === color ? 'var(--text-primary)' : `var(--border-color)`,
+                            borderWidth: '1px',
+                            borderStyle: 'solid'
+                          }}
+                        >
+                          {color}
+                        </button>
+                      ))}
                     </div>
                   )}
-
-                  <div className="category-filter-row">
-                    <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', marginRight: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      Filter by Color:
-                    </span>
-                    <button
-                      onClick={() => setColorFilter('all')}
-                      className={`btn btn-secondary ${colorFilter === 'all' ? 'active' : ''}`}
-                      style={{ padding: '0.35rem 0.7rem', fontSize: '0.75rem', border: colorFilter === 'all' ? '1px solid var(--text-primary)' : '1px solid var(--border-color)' }}
-                    >
-                      All
-                    </button>
-                    {['black', 'blue', 'purple', 'brown', 'gold'].map(color => (
-                      <button
-                        key={color}
-                        onClick={() => setColorFilter(color)}
-                        className={`btn btn-secondary`}
-                        style={{
-                          padding: '0.35rem 0.7rem',
-                          fontSize: '0.75rem',
-                          textTransform: 'capitalize',
-                          backgroundColor: colorFilter === color ? `var(--cat-${color}-border)` : `var(--cat-${color}-bg)`,
-                          color: colorFilter === color ? '#000' : `var(--cat-${color}-border)`,
-                          borderColor: colorFilter === color ? 'var(--text-primary)' : `var(--border-color)`,
-                          borderWidth: '1px',
-                          borderStyle: 'solid'
-                        }}
-                      >
-                        {color}
-                      </button>
-                    ))}
-                  </div>
                 </>
               )}
             </section>
